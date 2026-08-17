@@ -63,6 +63,132 @@ class AgentProjectApiTests(unittest.TestCase):
             "POST", "/api/projects", {"student_id": self.student_id, "text": text}
         )
 
+    @staticmethod
+    def learning_task_handoff():
+        return {
+            "schema_version": "learning-task-knowledge-to-personalized-learning-v1",
+            "entry_id": "ple-test-windows-uefi",
+            "status": "ready",
+            "source": {
+                "source_system": "learning-work-task-conversion",
+                "task_card_id": "ltc-windows-001",
+                "verification_status": "validated",
+            },
+            "task_context": {
+                "work_task_id": "wt-windows-install",
+                "enterprise_task_name": "Windows 11 系统安装与驱动配置",
+                "enterprise_task_description": "完成系统安装、驱动配置和验收。",
+                "teaching_task_name": "Windows 11 系统安装学习型工作任务",
+                "teaching_task_description": "在校内实训环境完成安装与验收。",
+                "work_situation": {"environment": "校内实训机房"},
+            },
+            "focus": {
+                "knowledge_point": {
+                    "knowledge_id": "KP-UEFI-BOOT",
+                    "name": "UEFI 启动模式与启动顺序",
+                    "knowledge_type": "procedural",
+                    "description": "理解 UEFI 启动项和安装介质之间的关系。",
+                    "related_skill_ids": ["SK-BIOS-CONFIG"],
+                },
+                "source_steps": [
+                    {
+                        "step_id": "STEP-02",
+                        "title": "配置安装介质启动",
+                        "action": "进入 UEFI 设置并选择安装介质启动项",
+                        "deliverable": "可进入安装程序的启动配置",
+                        "check": "重启后能够进入 Windows 安装界面",
+                        "knowledge_point_ids": ["KP-UEFI-BOOT"],
+                        "skill_point_ids": ["SK-BIOS-CONFIG"],
+                    }
+                ],
+                "strongly_related_skills": [
+                    {
+                        "skill_id": "SK-BIOS-CONFIG",
+                        "name": "配置 BIOS/UEFI 启动项",
+                    }
+                ],
+                "relationships": [
+                    {
+                        "relation_id": "REL-STEP02-UEFI",
+                        "relation_type": "required_for_step",
+                        "strength": "strong",
+                        "step_id": "STEP-02",
+                        "knowledge_id": "KP-UEFI-BOOT",
+                        "skill_ids": ["SK-BIOS-CONFIG"],
+                        "basis": "validated_step_mapping",
+                    }
+                ],
+            },
+            "generation_contract": {
+                "immutable_fields": [
+                    "task_context.enterprise_task_name",
+                    "focus.source_steps[].step_id",
+                    "focus.relationships",
+                ]
+            },
+            "feedback_contract": {
+                "schema_version": "personalized-learning-to-task-conversion-feedback-v1",
+                "method": "POST",
+                "url": "https://task.example/api/downstream-feedback",
+            },
+            "navigation": {
+                "return_path": "/wf03/tasks/ltc-windows-001",
+            },
+        }
+
+    def test_import_learning_task_handoff_preserves_relationships_and_is_idempotent(self):
+        payload = {
+            "student_id": self.student_id,
+            "handoff": self.learning_task_handoff(),
+        }
+        first = self.request_json(
+            "POST", "/api/integrations/learning-task-knowledge", payload
+        )
+        second = self.request_json(
+            "POST", "/api/integrations/learning-task-knowledge", payload
+        )
+
+        self.assertTrue(first["created"])
+        self.assertFalse(second["created"])
+        self.assertEqual(first["project_id"], second["project_id"])
+        self.assertEqual(first["knowledge_point_id"], "KP-UEFI-BOOT")
+        self.assertIn("project_id=", first["redirect_url"])
+
+        detail = self.request_json(
+            "GET",
+            f"/api/projects/{first['project_id']}?student_id={self.student_id}",
+        )["project"]
+        self.assertEqual(detail["support_level"], "generated_scaffold")
+        self.assertEqual(detail["assessment_state"], "question_sources_pending")
+        self.assertEqual(
+            detail["learning_path"]["items"][0]["knowledge_point_id"],
+            "KP-UEFI-BOOT",
+        )
+        self.assertEqual(
+            detail["learning_path"]["items"][0]["source_step_ids"],
+            ["STEP-02"],
+        )
+        relationships = detail["external_handoff"]["focus"]["relationships"]
+        self.assertEqual(relationships[0]["relation_id"], "REL-STEP02-UEFI")
+        self.assertEqual(
+            detail["external_handoff"]["feedback_contract"]["url"],
+            "https://task.example/api/downstream-feedback",
+        )
+
+    def test_import_learning_task_handoff_rejects_unknown_relationship_step(self):
+        import urllib.error
+
+        handoff = self.learning_task_handoff()
+        handoff["entry_id"] = "ple-invalid-step"
+        handoff["focus"]["relationships"][0]["step_id"] = "STEP-UNKNOWN"
+        with self.assertRaises(urllib.error.HTTPError) as context:
+            self.request_json(
+                "POST",
+                "/api/integrations/learning-task-knowledge",
+                {"student_id": self.student_id, "handoff": handoff},
+            )
+        self.assertEqual(context.exception.code, 422)
+
     def test_create_project_matches_graph_goal(self):
         result = self.create_project("我想系统掌握 Java 面向对象编程")
         self.assertEqual(result["status"], "ok")

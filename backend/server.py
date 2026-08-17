@@ -357,6 +357,18 @@ class StateStore:
                 );
                 CREATE INDEX IF NOT EXISTS idx_projects_student
                     ON projects(student_id, updated_at DESC);
+                CREATE TABLE IF NOT EXISTS learning_task_handoffs (
+                    entry_id TEXT PRIMARY KEY,
+                    student_id TEXT NOT NULL,
+                    project_id TEXT NOT NULL,
+                    task_card_id TEXT NOT NULL,
+                    knowledge_point_id TEXT NOT NULL,
+                    payload_json TEXT NOT NULL,
+                    created_at TEXT NOT NULL,
+                    updated_at TEXT NOT NULL
+                );
+                CREATE INDEX IF NOT EXISTS idx_learning_task_handoffs_student
+                    ON learning_task_handoffs(student_id, updated_at DESC);
                 CREATE TABLE IF NOT EXISTS project_messages (
                     message_id TEXT PRIMARY KEY,
                     project_id TEXT NOT NULL,
@@ -554,6 +566,94 @@ class StateStore:
             connection.commit()
         return project_id
 
+    def create_project_from_learning_task_handoff(
+        self,
+        student_id: str,
+        entry_id: str,
+        task_card_id: str,
+        knowledge_point_id: str,
+        goal_id: str,
+        goal_name: str,
+        state: dict[str, Any],
+        handoff: dict[str, Any],
+    ) -> tuple[str, bool]:
+        """Atomically materialize one knowledge-scoped handoff as a project.
+
+        ``entry_id`` is owned by the source task conversion service.  Keeping the
+        lookup and inserts in one immediate transaction prevents a double click
+        (or two browser tabs) from creating duplicate personalized-learning
+        projects.
+        """
+        now = utc_now()
+        with self._lock, closing(self._connect()) as connection:
+            connection.execute("BEGIN IMMEDIATE")
+            existing = connection.execute(
+                """
+                SELECT student_id, project_id
+                FROM learning_task_handoffs
+                WHERE entry_id = ?
+                """,
+                (entry_id,),
+            ).fetchone()
+            if existing:
+                if str(existing["student_id"]) != student_id:
+                    connection.rollback()
+                    raise ApiError(
+                        409,
+                        "HANDOFF_OWNER_MISMATCH",
+                        "该学习任务交接已经绑定到其他学习者",
+                    )
+                connection.commit()
+                return str(existing["project_id"]), False
+
+            project_id = f"PROJ-{uuid.uuid4().hex[:12]}"
+            connection.execute(
+                """
+                INSERT INTO projects(
+                    project_id, student_id, goal_id, goal_name, status,
+                    state_json, created_at, updated_at
+                ) VALUES (?, ?, ?, ?, 'created', ?, ?, ?)
+                """,
+                (
+                    project_id,
+                    student_id,
+                    goal_id,
+                    goal_name,
+                    json_text(state),
+                    now,
+                    now,
+                ),
+            )
+            connection.execute(
+                """
+                INSERT INTO learning_task_handoffs(
+                    entry_id, student_id, project_id, task_card_id,
+                    knowledge_point_id, payload_json, created_at, updated_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    entry_id,
+                    student_id,
+                    project_id,
+                    task_card_id,
+                    knowledge_point_id,
+                    json_text(handoff),
+                    now,
+                    now,
+                ),
+            )
+            connection.execute(
+                """
+                INSERT INTO project_lessons(
+                    project_id, student_id, knowledge_point_id, status,
+                    lesson_json, error_message, generated_at, updated_at
+                ) VALUES (?, ?, ?, 'queued', '{}', '', '', ?)
+                """,
+                (project_id, student_id, knowledge_point_id, now),
+            )
+            connection.commit()
+        return project_id, True
+
     def save_project_state(
         self,
         project_id: str,
@@ -622,6 +722,7 @@ class StateStore:
             for table in (
                 "assessment_evidence",
                 "assessment_runs",
+                "learning_task_handoffs",
                 "project_lessons",
                 "project_notes",
                 "project_messages",
@@ -5322,6 +5423,291 @@ class LearningApplication:
             "project": self._project_payload(project_id, goal_name, "created", state),
         }
 
+    def import_learning_task_knowledge(
+        self, incoming: dict[str, Any]
+    ) -> dict[str, Any]:
+        """Create a project from a verified, knowledge-scoped work-task handoff.
+
+        The task conversion service already decided which task steps use the
+        knowledge and skills.  This endpoint therefore validates and preserves
+        that relationship instead of asking a model to plan the knowledge path
+        again.
+        """
+        student_id = str(incoming.get("student_id") or "").strip()
+        handoff = as_dict(incoming.get("handoff"))
+        if not student_id:
+            raise ApiError(400, "MISSING_STUDENT_ID", "student_id 不能为空")
+        if not handoff:
+            raise ApiError(400, "MISSING_HANDOFF", "handoff 不能为空")
+        if str(handoff.get("schema_version") or "") != (
+            "learning-task-knowledge-to-personalized-learning-v1"
+        ):
+            raise ApiError(
+                422,
+                "UNSUPPORTED_HANDOFF_SCHEMA",
+                "仅支持 learning-task-knowledge-to-personalized-learning-v1",
+            )
+
+        entry_id = str(handoff.get("entry_id") or "").strip()
+        source = as_dict(handoff.get("source"))
+        task_context = as_dict(handoff.get("task_context"))
+        focus = as_dict(handoff.get("focus"))
+        knowledge = as_dict(focus.get("knowledge_point"))
+        task_card_id = str(source.get("task_card_id") or "").strip()
+        knowledge_point_id = str(
+            knowledge.get("knowledge_id")
+            or knowledge.get("knowledge_point_id")
+            or ""
+        ).strip()
+        knowledge_point_name = str(
+            knowledge.get("name")
+            or knowledge.get("knowledge_point_name")
+            or ""
+        ).strip()
+        if not entry_id or not task_card_id or not knowledge_point_id or not knowledge_point_name:
+            raise ApiError(
+                422,
+                "INCOMPLETE_HANDOFF_IDENTITY",
+                "交接必须包含 entry_id、task_card_id、knowledge_id 和知识点名称",
+            )
+
+        source_steps = [
+            dict(item)
+            for item in as_list(focus.get("source_steps"))
+            if isinstance(item, dict)
+        ]
+        related_skills = [
+            dict(item)
+            for item in as_list(focus.get("strongly_related_skills"))
+            if isinstance(item, dict)
+        ]
+        relationships = [
+            dict(item)
+            for item in as_list(focus.get("relationships"))
+            if isinstance(item, dict)
+        ]
+        if not source_steps or not relationships:
+            raise ApiError(
+                422,
+                "HANDOFF_RELATIONSHIP_REQUIRED",
+                "交接必须包含来源步骤和知识点强关系",
+            )
+
+        step_ids = {
+            str(step.get("step_id") or "").strip()
+            for step in source_steps
+            if str(step.get("step_id") or "").strip()
+        }
+        skill_ids = {
+            str(skill.get("skill_id") or "").strip()
+            for skill in related_skills
+            if str(skill.get("skill_id") or "").strip()
+        }
+        if len(step_ids) != len(source_steps):
+            raise ApiError(
+                422,
+                "INVALID_SOURCE_STEPS",
+                "每个来源步骤必须具有唯一且非空的 step_id",
+            )
+        for relation in relationships:
+            relation_step_id = str(relation.get("step_id") or "").strip()
+            relation_knowledge_id = str(
+                relation.get("knowledge_id") or knowledge_point_id
+            ).strip()
+            relation_skill_ids = {
+                str(value).strip()
+                for value in as_list(relation.get("skill_ids"))
+                if str(value).strip()
+            }
+            if relation_step_id not in step_ids:
+                raise ApiError(
+                    422,
+                    "UNKNOWN_RELATION_STEP",
+                    "强关系引用了交接中不存在的任务步骤",
+                )
+            if relation_knowledge_id != knowledge_point_id:
+                raise ApiError(
+                    422,
+                    "RELATION_KNOWLEDGE_MISMATCH",
+                    "强关系中的知识点与当前交接知识点不一致",
+                )
+            if relation_skill_ids - skill_ids:
+                raise ApiError(
+                    422,
+                    "UNKNOWN_RELATION_SKILL",
+                    "强关系引用了交接中不存在的技能点",
+                )
+
+        teaching_task_name = str(
+            task_context.get("teaching_task_name")
+            or task_context.get("enterprise_task_name")
+            or "学习型工作任务"
+        ).strip()
+        enterprise_task_name = str(
+            task_context.get("enterprise_task_name") or teaching_task_name
+        ).strip()
+        goal_name = f"{teaching_task_name}：{knowledge_point_name}"[:240]
+        goal_id = "GOAL-HANDOFF-" + hashlib.sha256(
+            entry_id.encode("utf-8")
+        ).hexdigest()[:16].upper()
+        step_titles = [
+            str(step.get("title") or step.get("name") or step.get("action") or step["step_id"])
+            .strip()[:120]
+            for step in source_steps
+        ]
+        deliverables = [
+            str(step.get("deliverable") or "").strip()
+            for step in source_steps
+            if str(step.get("deliverable") or "").strip()
+        ]
+        checks = [
+            str(step.get("check") or "").strip()
+            for step in source_steps
+            if str(step.get("check") or "").strip()
+        ]
+        skill_names = [
+            str(skill.get("name") or skill.get("skill_name") or skill.get("skill_id") or "").strip()
+            for skill in related_skills
+            if str(skill.get("name") or skill.get("skill_name") or skill.get("skill_id") or "").strip()
+        ]
+        goal_connection = (
+            f"“{knowledge_point_name}”由学习型工作任务“{teaching_task_name}”中的"
+            f"{len(source_steps)}个已校验步骤直接使用：{'、'.join(step_titles)}。"
+        )[:600]
+        learning_outcome = (
+            f"能够在“{enterprise_task_name}”中运用“{knowledge_point_name}”完成"
+            f"{'、'.join(deliverables) if deliverables else '对应步骤产物'}，并依据"
+            f"{'、'.join(checks) if checks else '任务检查点'}进行核验。"
+        )[:600]
+        source_status = (
+            "verified_task_mapping"
+            if str(source.get("verification_status") or "").lower()
+            in {"verified", "approved", "passed", "ready", "validated"}
+            else "task_mapping_pending_review"
+        )
+        path_item = {
+            "knowledge_point_id": knowledge_point_id,
+            "knowledge_point_name": knowledge_point_name,
+            "knowledge_type": str(knowledge.get("knowledge_type") or "conceptual"),
+            "description": str(knowledge.get("description") or "")[:600],
+            "mastery": None,
+            "mastery_is_estimated": False,
+            "mastery_model": "",
+            "evidence_status": "unassessed",
+            "evidence_count": 0,
+            "confidence": None,
+            "source_event_ids": [],
+            "status": "current",
+            "recommended_order": 1,
+            "goal_id": goal_id,
+            "source_status": source_status,
+            "goal_connection": goal_connection,
+            "learning_outcome": learning_outcome,
+            "prerequisites": [],
+            "video_context_keywords": [
+                value
+                for value in [
+                    enterprise_task_name,
+                    knowledge_point_name,
+                    *skill_names[:4],
+                ]
+                if value
+            ],
+            "source_step_ids": sorted(step_ids),
+            "related_skill_ids": sorted(skill_ids),
+            "relationship_ids": [
+                str(relation.get("relation_id") or "").strip()
+                for relation in relationships
+                if str(relation.get("relation_id") or "").strip()
+            ],
+        }
+        constraints = {
+            "goal_type": "work_task",
+            "source_system": str(source.get("source_system") or "learning-work-task-conversion"),
+            "task_card_id": task_card_id,
+            "handoff_entry_id": entry_id,
+            "enterprise_task_name": enterprise_task_name,
+            "target_outcome": "；".join(deliverables)[:600],
+        }
+        learning_path = {
+            "goal_id": goal_id,
+            "goal_name": goal_name,
+            "items": [path_item],
+            "progress": 0,
+            "planning_state": "ready",
+            "planning_provider": "verified_learning_task_handoff",
+            "path_basis": "学习型工作任务中的已校验步骤—知识点—技能点关系",
+        }
+        state: dict[str, Any] = {
+            "goal": {
+                "goal_id": goal_id,
+                "goal_name": goal_name,
+                "goal_type": "work_task",
+                "canonical_goal_name": "",
+                "original_text": enterprise_task_name,
+                "constraints": constraints,
+            },
+            "learning_path": learning_path,
+            "goal_knowledge_points": [path_item],
+            "learning_plan": {},
+            "planning_state": "ready",
+            "support_level": "generated_scaffold",
+            "assessment_state": "question_sources_pending",
+            "initial_assessment_state": "awaiting_reviewed_sources",
+            "initial_knowledge_self_report": {},
+            "baseline_profile": {"status": "not_created", "knowledge_points": []},
+            "current_profile": {"status": "not_created", "knowledge_points": []},
+            "diagnosis_session": None,
+            "assessment_session": None,
+            "weak_points": [],
+            "learner_preferences": {},
+            "learner_self_reports": [],
+            "external_handoff": handoff,
+        }
+        state["learning_plan"] = self._build_project_learning_plan(state)
+        project_id, created = self.store.create_project_from_learning_task_handoff(
+            student_id,
+            entry_id,
+            task_card_id,
+            knowledge_point_id,
+            goal_id,
+            goal_name,
+            state,
+            handoff,
+        )
+        if created:
+            self.store.add_project_message(
+                project_id,
+                student_id,
+                "assistant",
+                (
+                    f"已从学习型工作任务导入“{knowledge_point_name}”。"
+                    "任务步骤、技能点和强关系已锁定，后续只生成个性化学习内容。"
+                ),
+                "import_learning_task_handoff",
+                {
+                    "entry_id": entry_id,
+                    "task_card_id": task_card_id,
+                    "knowledge_point_id": knowledge_point_id,
+                },
+            )
+            self._queue_project_lesson_generation(
+                project_id,
+                student_id,
+                background=self.gateway.mode == "remote",
+            )
+        return {
+            "status": "ok",
+            "entry_id": entry_id,
+            "project_id": project_id,
+            "knowledge_point_id": knowledge_point_id,
+            "redirect_url": (
+                "/?project_id=" + quote_plus(project_id)
+                + "&knowledge_point_id=" + quote_plus(knowledge_point_id)
+            ),
+            "created": created,
+        }
+
     @staticmethod
     def _project_payload(
         project_id: str,
@@ -5443,6 +5829,7 @@ class LearningApplication:
                 ),
                 "learner_preferences": as_dict(state.get("learner_preferences")),
                 "learner_self_reports": as_list(state.get("learner_self_reports")),
+                "external_handoff": as_dict(state.get("external_handoff")),
                 "initial_knowledge_self_report": as_dict(
                     state.get("initial_knowledge_self_report")
                 ),
@@ -12598,6 +12985,8 @@ class ApiRequestHandler(BaseHTTPRequestHandler):
                 result = self.application.run_review(payload)
             elif parsed.path == "/api/demo/seed":
                 result = self.application.ingest_upstream(demo_upstream_payload())
+            elif parsed.path == "/api/integrations/learning-task-knowledge":
+                result = self.application.import_learning_task_knowledge(payload)
             elif parsed.path == "/api/projects":
                 result = self.application.create_project(payload)
             elif parsed.path == "/api/discovery/sessions":

@@ -4947,6 +4947,24 @@
       }
       const conversation = switchConversation(createDraftConversationKey());
       initializeConversation(conversation);
+      const entryParams = new URLSearchParams(window.location.search);
+      const requestedProjectId = String(entryParams.get("project_id") || "").trim();
+      const requestedKnowledgeId = String(entryParams.get("knowledge_point_id") || "").trim();
+      if (requestedProjectId && state.projects.some((project) => project.project_id === requestedProjectId)) {
+        state.expandedProjects.add(requestedProjectId);
+        await selectProject(requestedProjectId);
+        if (requestedKnowledgeId) {
+          const project = await loadProjectDetail(requestedProjectId);
+          const point = (project.learning_path && project.learning_path.items || []).find(
+            (item) => String(item.knowledge_point_id || "") === requestedKnowledgeId,
+          );
+          await openLesson(
+            requestedProjectId,
+            requestedKnowledgeId,
+            point && point.knowledge_point_name || requestedKnowledgeId,
+          );
+        }
+      }
     }
     boot();
   </script>
