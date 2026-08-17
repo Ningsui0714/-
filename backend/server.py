@@ -226,6 +226,10 @@ class Settings:
     material_knowledge_timeout: float = 8
     material_knowledge_allow_insecure_http: bool = False
     learning_task_conversion_url: str = "http://127.0.0.1:5174/agent?tool=learning-task-conversion"
+    learning_task_conversion_api_url: str = "http://127.0.0.1:8011/api/learning-task-conversion/integration-generate"
+    learning_task_conversion_token: str = ""
+    learning_task_conversion_timeout: float = 300
+    learning_task_conversion_artifact_base_url: str = "http://82.156.199.145/api/v1/learning-task-conversion/tasks"
     allowed_origins: tuple[str, ...] = (
         "http://127.0.0.1:4173",
         "http://localhost:4173",
@@ -306,6 +310,20 @@ class Settings:
                 "LEARNING_TASK_CONVERSION_URL",
                 "http://127.0.0.1:5174/agent?tool=learning-task-conversion",
             ).strip(),
+            learning_task_conversion_api_url=os.getenv(
+                "LEARNING_TASK_CONVERSION_API_URL",
+                "http://127.0.0.1:8011/api/learning-task-conversion/integration-generate",
+            ).strip(),
+            learning_task_conversion_token=os.getenv(
+                "LEARNING_TASK_CONVERSION_TOKEN", ""
+            ).strip(),
+            learning_task_conversion_timeout=max(
+                10.0, float(os.getenv("LEARNING_TASK_CONVERSION_TIMEOUT", "300"))
+            ),
+            learning_task_conversion_artifact_base_url=os.getenv(
+                "LEARNING_TASK_CONVERSION_ARTIFACT_BASE_URL",
+                "http://82.156.199.145/api/v1/learning-task-conversion/tasks",
+            ).strip().rstrip("/"),
             allowed_origins=allowed_origins,
             api_token=os.getenv("APP_API_TOKEN", "").strip(),
         )
@@ -5428,6 +5446,116 @@ class LearningApplication:
             "project": self._project_payload(project_id, goal_name, "created", state),
         }
 
+    def generate_learning_task(
+        self, incoming: dict[str, Any]
+    ) -> dict[str, Any]:
+        """Call the feature-scoped WF03 API without navigating away.
+
+        Provider credentials remain in the conversion service.  This backend
+        only forwards the learner's task wording and returns the validated
+        artifact bundle to the current personalized-learning workbench.
+        """
+        query = str(incoming.get("query") or "").strip()
+        student_id = str(incoming.get("student_id") or "").strip()
+        if len(query) < 2:
+            raise ApiError(422, "TASK_QUERY_REQUIRED", "请说明岗位或企业真实工作任务")
+        endpoint = self.settings.learning_task_conversion_api_url.strip()
+        parsed = urlparse(endpoint)
+        if parsed.scheme not in {"http", "https"} or not parsed.netloc:
+            raise ApiError(
+                503,
+                "LEARNING_TASK_CONVERSION_NOT_CONFIGURED",
+                "学习型任务转化服务尚未配置",
+            )
+        headers = {
+            "Content-Type": "application/json; charset=utf-8",
+            "Accept": "application/json",
+        }
+        if self.settings.learning_task_conversion_token:
+            headers["X-Learning-Task-Conversion-Token"] = (
+                self.settings.learning_task_conversion_token
+            )
+        request = urllib.request.Request(
+            endpoint,
+            data=json.dumps(
+                {"query": query, "student_id": student_id}, ensure_ascii=False
+            ).encode("utf-8"),
+            headers=headers,
+            method="POST",
+        )
+        try:
+            with urllib.request.urlopen(
+                request, timeout=self.settings.learning_task_conversion_timeout
+            ) as response:
+                payload = json.loads(response.read().decode("utf-8"))
+        except urllib.error.HTTPError as error:
+            detail = error.read().decode("utf-8", errors="replace")[:1000]
+            raise ApiError(
+                502,
+                "LEARNING_TASK_CONVERSION_UPSTREAM_ERROR",
+                f"学习型任务转化服务返回 HTTP {error.code}: {detail}",
+            ) from error
+        except (urllib.error.URLError, TimeoutError, OSError) as error:
+            reason = getattr(error, "reason", error)
+            raise ApiError(
+                503,
+                "LEARNING_TASK_CONVERSION_UNAVAILABLE",
+                f"学习型任务转化服务不可用：{reason}",
+            ) from error
+        except (UnicodeDecodeError, json.JSONDecodeError) as error:
+            raise ApiError(
+                502,
+                "LEARNING_TASK_CONVERSION_INVALID_RESPONSE",
+                "学习型任务转化服务返回了无效数据",
+            ) from error
+        if not isinstance(payload, dict):
+            raise ApiError(
+                502,
+                "LEARNING_TASK_CONVERSION_INVALID_RESPONSE",
+                "学习型任务转化服务返回结构不正确",
+            )
+        task_card_id = str(payload.get("task_card_id") or "").strip()
+        if payload.get("status") == "success" and re.fullmatch(
+            r"[A-Za-z0-9_-]{1,100}", task_card_id
+        ):
+            payload["artifact_url"] = (
+                "/api/integrations/learning-task-conversion/tasks/"
+                + quote_plus(task_card_id)
+                + "/interactive.html"
+            )
+        return payload
+
+    def learning_task_artifact_html(self, task_card_id: str) -> bytes:
+        if not re.fullmatch(r"[A-Za-z0-9_-]{1,100}", task_card_id):
+            raise ApiError(422, "INVALID_TASK_CARD_ID", "学习型任务标识不合法")
+        base_url = self.settings.learning_task_conversion_artifact_base_url
+        parsed = urlparse(base_url)
+        if parsed.scheme not in {"http", "https"} or not parsed.netloc:
+            raise ApiError(503, "TASK_ARTIFACT_NOT_CONFIGURED", "任务网页服务尚未配置")
+        request = urllib.request.Request(
+            f"{base_url}/{task_card_id}/interactive.html",
+            headers={"Accept": "text/html; charset=utf-8"},
+            method="GET",
+        )
+        try:
+            with urllib.request.urlopen(
+                request, timeout=self.settings.learning_task_conversion_timeout
+            ) as response:
+                content_type = str(response.headers.get("Content-Type") or "").lower()
+                body = response.read()
+        except urllib.error.HTTPError as error:
+            raise ApiError(
+                502,
+                "TASK_ARTIFACT_UPSTREAM_ERROR",
+                f"任务网页服务返回 HTTP {error.code}",
+            ) from error
+        except (urllib.error.URLError, TimeoutError, OSError) as error:
+            reason = getattr(error, "reason", error)
+            raise ApiError(503, "TASK_ARTIFACT_UNAVAILABLE", f"任务网页不可用：{reason}") from error
+        if "text/html" not in content_type or len(body) > 2_000_000:
+            raise ApiError(502, "TASK_ARTIFACT_INVALID", "任务网页响应不符合要求")
+        return body
+
     def import_learning_task_knowledge(
         self, incoming: dict[str, Any]
     ) -> dict[str, Any]:
@@ -10024,6 +10152,9 @@ class LearningApplication:
             "material_knowledge_status": self.material_knowledge.status,
             "material_knowledge_enabled": self.material_knowledge.enabled,
             "learning_task_conversion_url": self.settings.learning_task_conversion_url,
+            "learning_task_conversion_enabled": bool(
+                self.settings.learning_task_conversion_api_url
+            ),
             "time": utc_now(),
         }
 
@@ -12678,6 +12809,16 @@ class ApiRequestHandler(BaseHTTPRequestHandler):
             if parsed.path == "/api/health":
                 self._send_json(200, self.application.health())
                 return
+            learning_task_artifact_match = re.fullmatch(
+                r"/api/integrations/learning-task-conversion/tasks/([^/]+)/interactive\.html",
+                parsed.path,
+            )
+            if learning_task_artifact_match:
+                body = self.application.learning_task_artifact_html(
+                    unquote(learning_task_artifact_match.group(1))
+                )
+                self._send_html(200, body)
+                return
             if parsed.path == "/api/bootstrap":
                 student_id = parse_qs(parsed.query).get("student_id", ["STU-DEMO-001"])[0]
                 self._send_json(200, self.application.bootstrap(student_id))
@@ -12994,6 +13135,8 @@ class ApiRequestHandler(BaseHTTPRequestHandler):
                 result = self.application.ingest_upstream(demo_upstream_payload())
             elif parsed.path == "/api/integrations/learning-task-knowledge":
                 result = self.application.import_learning_task_knowledge(payload)
+            elif parsed.path == "/api/integrations/learning-task-conversion/generate":
+                result = self.application.generate_learning_task(payload)
             elif parsed.path == "/api/projects":
                 result = self.application.create_project(payload)
             elif parsed.path == "/api/discovery/sessions":
@@ -13157,6 +13300,19 @@ class ApiRequestHandler(BaseHTTPRequestHandler):
         self.send_response(status_code)
         self._send_common_headers("application/json; charset=utf-8", len(content))
         self.send_header("Cache-Control", "no-store")
+        self.end_headers()
+        self.wfile.write(content)
+
+    def _send_html(self, status_code: int, content: bytes) -> None:
+        self.send_response(status_code)
+        self._send_common_headers("text/html; charset=utf-8", len(content))
+        self.send_header("Cache-Control", "private, max-age=60")
+        self.send_header(
+            "Content-Security-Policy",
+            "default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline'; "
+            "img-src https: data:; connect-src 'none'; frame-ancestors 'self'; "
+            "base-uri 'none'; form-action 'none'",
+        )
         self.end_headers()
         self.wfile.write(content)
 

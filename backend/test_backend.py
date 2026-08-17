@@ -92,6 +92,40 @@ class BackendIntegrationTests(unittest.TestCase):
 
         self.assertEqual(settings.input_key, "AGENT_USER_INPUT")
 
+    def test_learning_task_conversion_proxy_keeps_artifact_in_current_shell(self):
+        expected = {
+            "status": "success",
+            "task_card_id": "ltc_embed_001",
+            "artifact_url": "https://example.test/tasks/ltc_embed_001/interactive.html",
+            "bundle": {"task_card_id": "ltc_embed_001"},
+        }
+
+        class FakeResponse:
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *_args):
+                return False
+
+            def read(self):
+                return json.dumps(expected).encode("utf-8")
+
+        application = self.server.RequestHandlerClass.application
+        with patch("backend.server.urllib.request.urlopen", return_value=FakeResponse()) as opener:
+            result = application.generate_learning_task({
+                "student_id": "STU-001",
+                "query": "Unity第三人称摄像机跟随模块开发",
+            })
+
+        self.assertEqual(result["task_card_id"], expected["task_card_id"])
+        self.assertEqual(
+            result["artifact_url"],
+            "/api/integrations/learning-task-conversion/tasks/ltc_embed_001/interactive.html",
+        )
+        sent = json.loads(opener.call_args.args[0].data.decode("utf-8"))
+        self.assertEqual(sent["student_id"], "STU-001")
+        self.assertEqual(sent["query"], "Unity第三人称摄像机跟随模块开发")
+
     def test_unified_learning_context_overrides_assessment_route(self):
         application = self.server.RequestHandlerClass.application
         context = {
