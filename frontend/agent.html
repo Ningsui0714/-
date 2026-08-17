@@ -1234,7 +1234,7 @@
       chatTools: { knowledge: true, web: true, materials: false },
       materialKnowledgeAvailable: false,
       materialKnowledgeStatus: "disabled",
-      learningTaskConversionUrl: "",
+      learningTaskConversionUrl: "http://127.0.0.1:5174/agent?tool=learning-task-conversion",
       notesByLesson: new Map(),
       selectionContext: null,
       selectionRange: null,
@@ -4944,7 +4944,12 @@
         const p = profile && profile.profile;
         state.materialKnowledgeAvailable = Boolean(health && health.material_knowledge_enabled);
         state.materialKnowledgeStatus = health && health.material_knowledge_status || "disabled";
-        state.learningTaskConversionUrl = String(health && health.learning_task_conversion_url || "").trim();
+        const configuredLearningTaskConversionUrl = String(
+          health && health.learning_task_conversion_url || "",
+        ).trim();
+        if (configuredLearningTaskConversionUrl) {
+          state.learningTaskConversionUrl = configuredLearningTaskConversionUrl;
+        }
         const materialsButton = document.querySelector('[data-tool="materials"]');
         if (materialsButton) {
           materialsButton.title = state.materialKnowledgeAvailable
