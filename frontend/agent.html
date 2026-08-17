@@ -577,7 +577,7 @@
     .suggestion-chip:hover { border-color: var(--green); color: var(--green-strong); background: var(--green-soft); }
 
     .chat-input-box { padding: 9px 14px 12px; border-top: 1px solid var(--line); }
-    .chat-tools { display: flex; align-items: center; gap: 5px; margin-bottom: 7px; }
+    .chat-tools { display: flex; flex-wrap: wrap; align-items: center; gap: 5px; margin-bottom: 7px; }
     .chat-tool {
       display: inline-flex; align-items: center; gap: 5px; border: 1px solid var(--line); border-radius: 7px;
       padding: 5px 8px; background: var(--surface); color: var(--muted); font-size: 10.5px;
@@ -1110,6 +1110,7 @@
             <button class="chat-tool" data-tool="knowledge" type="button" aria-pressed="true"><i data-lucide="database"></i>领域知识库</button>
             <button class="chat-tool" data-tool="web" type="button" aria-pressed="true"><i data-lucide="globe-2"></i>联网检索</button>
             <button class="chat-tool" data-tool="materials" type="button" aria-pressed="false"><i data-lucide="paperclip"></i>学习资料</button>
+            <button class="chat-tool" data-action="learning-task-conversion" type="button" aria-pressed="false" title="从岗位或企业真实工作任务生成学习型任务"><i data-lucide="workflow"></i>学习型任务转化</button>
           </div>
           <div class="chat-input">
             <textarea id="chat-textarea" rows="1" placeholder="输入学习目标、知识问题，也可以搜索、翻译、总结或写作…"></textarea>
@@ -1233,6 +1234,7 @@
       chatTools: { knowledge: true, web: true, materials: false },
       materialKnowledgeAvailable: false,
       materialKnowledgeStatus: "disabled",
+      learningTaskConversionUrl: "",
       notesByLesson: new Map(),
       selectionContext: null,
       selectionRange: null,
@@ -4904,6 +4906,15 @@
     });
     document.querySelectorAll(".chat-tool").forEach((button) => {
       button.onclick = () => {
+        if (button.dataset.action === "learning-task-conversion") {
+          const target = safeHttpUrl(state.learningTaskConversionUrl);
+          if (!target) {
+            addMsg("bot", "<p><strong>学习型任务转化入口尚未配置。</strong> 请设置 LEARNING_TASK_CONVERSION_URL。</p>");
+            return;
+          }
+          window.open(target, "_blank", "noopener,noreferrer");
+          return;
+        }
         if (button.dataset.tool === "materials" && !state.materialKnowledgeAvailable) {
           const message = state.materialKnowledgeStatus === "insecure_transport_blocked"
             ? "学习资料插件使用不安全的 HTTP 地址，系统已阻止发送学习内容。"
@@ -4933,6 +4944,7 @@
         const p = profile && profile.profile;
         state.materialKnowledgeAvailable = Boolean(health && health.material_knowledge_enabled);
         state.materialKnowledgeStatus = health && health.material_knowledge_status || "disabled";
+        state.learningTaskConversionUrl = String(health && health.learning_task_conversion_url || "").trim();
         const materialsButton = document.querySelector('[data-tool="materials"]');
         if (materialsButton) {
           materialsButton.title = state.materialKnowledgeAvailable

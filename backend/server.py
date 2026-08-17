@@ -225,6 +225,7 @@ class Settings:
     material_knowledge_request_type: str = "0"
     material_knowledge_timeout: float = 8
     material_knowledge_allow_insecure_http: bool = False
+    learning_task_conversion_url: str = "http://127.0.0.1:5174/agent?tool=learning-task-conversion"
     allowed_origins: tuple[str, ...] = (
         "http://127.0.0.1:4173",
         "http://localhost:4173",
@@ -301,6 +302,10 @@ class Settings:
             material_knowledge_allow_insecure_http=os.getenv(
                 "MATERIAL_KNOWLEDGE_ALLOW_INSECURE_HTTP", "0"
             ).strip().lower() in {"1", "true", "yes"},
+            learning_task_conversion_url=os.getenv(
+                "LEARNING_TASK_CONVERSION_URL",
+                "http://127.0.0.1:5174/agent?tool=learning-task-conversion",
+            ).strip(),
             allowed_origins=allowed_origins,
             api_token=os.getenv("APP_API_TOKEN", "").strip(),
         )
@@ -10018,6 +10023,7 @@ class LearningApplication:
             "video_search_enabled": self.video_search.enabled,
             "material_knowledge_status": self.material_knowledge.status,
             "material_knowledge_enabled": self.material_knowledge.enabled,
+            "learning_task_conversion_url": self.settings.learning_task_conversion_url,
             "time": utc_now(),
         }
 
