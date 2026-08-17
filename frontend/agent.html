@@ -1185,7 +1185,13 @@
 
   <script>
     /* ================= 基础 ================= */
-    const STUDENT_ID = localStorage.getItem("learning.student_id") || "STU-DEMO-001";
+    const ENTRY_STUDENT_ID = String(
+      new URLSearchParams(window.location.search).get("student_id") || "",
+    ).trim();
+    const STUDENT_ID = /^[A-Za-z0-9_-]{1,120}$/.test(ENTRY_STUDENT_ID)
+      ? ENTRY_STUDENT_ID
+      : (localStorage.getItem("learning.student_id") || "STU-DEMO-001");
+    localStorage.setItem("learning.student_id", STUDENT_ID);
     const $ = (id) => document.getElementById(id);
     const messagesEl = $("chat-messages");
     const treeEl = $("project-tree");

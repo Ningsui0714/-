@@ -5704,6 +5704,7 @@ class LearningApplication:
             "redirect_url": (
                 "/?project_id=" + quote_plus(project_id)
                 + "&knowledge_point_id=" + quote_plus(knowledge_point_id)
+                + "&student_id=" + quote_plus(student_id)
             ),
             "created": created,
         }

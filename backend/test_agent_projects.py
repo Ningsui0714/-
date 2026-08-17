@@ -153,6 +153,7 @@ class AgentProjectApiTests(unittest.TestCase):
         self.assertEqual(first["project_id"], second["project_id"])
         self.assertEqual(first["knowledge_point_id"], "KP-UEFI-BOOT")
         self.assertIn("project_id=", first["redirect_url"])
+        self.assertIn("student_id=STU-AGENT-001", first["redirect_url"])
 
         detail = self.request_json(
             "GET",

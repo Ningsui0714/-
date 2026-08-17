@@ -1,5 +1,11 @@
 ﻿(function connectBackend() {
-  const studentId = window.localStorage.getItem("learning.student_id") || "STU-DEMO-001";
+  const queryStudentId = new URLSearchParams(window.location.search).get("student_id") || "";
+  const safeQueryStudentId = /^[A-Za-z0-9_-]{1,120}$/.test(queryStudentId)
+    ? queryStudentId
+    : "";
+  const studentId = safeQueryStudentId
+    || window.localStorage.getItem("learning.student_id")
+    || "STU-DEMO-001";
   const sessionId = window.localStorage.getItem("learning.session_id") || `WEB-${Date.now()}`;
   window.localStorage.setItem("learning.student_id", studentId);
   window.localStorage.setItem("learning.session_id", sessionId);
