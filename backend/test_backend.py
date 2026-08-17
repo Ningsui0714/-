@@ -110,8 +110,17 @@ class BackendIntegrationTests(unittest.TestCase):
             def read(self):
                 return json.dumps(expected).encode("utf-8")
 
+        class FakeOpener:
+            def __init__(self):
+                self.request = None
+
+            def open(self, request, timeout):
+                self.request = request
+                return FakeResponse()
+
         application = self.server.RequestHandlerClass.application
-        with patch("backend.server.urllib.request.urlopen", return_value=FakeResponse()) as opener:
+        fake_opener = FakeOpener()
+        with patch("backend.server.urllib.request.build_opener", return_value=fake_opener):
             result = application.generate_learning_task({
                 "student_id": "STU-001",
                 "query": "Unity第三人称摄像机跟随模块开发",
@@ -122,7 +131,7 @@ class BackendIntegrationTests(unittest.TestCase):
             result["artifact_url"],
             "/api/integrations/learning-task-conversion/tasks/ltc_embed_001/interactive.html",
         )
-        sent = json.loads(opener.call_args.args[0].data.decode("utf-8"))
+        sent = json.loads(fake_opener.request.data.decode("utf-8"))
         self.assertEqual(sent["student_id"], "STU-001")
         self.assertEqual(sent["query"], "Unity第三人称摄像机跟随模块开发")
 

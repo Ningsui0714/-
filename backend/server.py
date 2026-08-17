@@ -5484,16 +5484,45 @@ class LearningApplication:
             method="POST",
         )
         try:
-            with urllib.request.urlopen(
+            # macOS may expose its system HTTP proxy through urllib even for a
+            # loopback integration URL.  The local task-conversion service must
+            # be reached directly; otherwise a proxy can discard the upstream
+            # JSON error body and turn an actionable Xunfei code into a generic
+            # HTTP 502 message.
+            opener = (
+                urllib.request.build_opener(urllib.request.ProxyHandler({}))
+                if parsed.hostname in {"127.0.0.1", "localhost", "::1"}
+                else urllib.request.build_opener()
+            )
+            with opener.open(
                 request, timeout=self.settings.learning_task_conversion_timeout
             ) as response:
                 payload = json.loads(response.read().decode("utf-8"))
         except urllib.error.HTTPError as error:
             detail = error.read().decode("utf-8", errors="replace")[:1000]
+            upstream_message = detail
+            try:
+                decoded_error = json.loads(detail)
+                if isinstance(decoded_error, dict):
+                    upstream_message = str(
+                        decoded_error.get("detail")
+                        or decoded_error.get("user_message")
+                        or decoded_error.get("message")
+                        or detail
+                    )
+            except json.JSONDecodeError:
+                pass
+            if "20373" in upstream_message:
+                upstream_message = (
+                    "讯飞 App 尚未获得工作流当前模型的功能授权，或该模型业务量已超限"
+                    "（讯飞错误码 20373）。"
+                    "请在同一 App 下确认模型授权后重试"
+                )
             raise ApiError(
                 502,
                 "LEARNING_TASK_CONVERSION_UPSTREAM_ERROR",
-                f"学习型任务转化服务返回 HTTP {error.code}: {detail}",
+                upstream_message
+                or f"学习型任务转化服务返回 HTTP {error.code}",
             ) from error
         except (urllib.error.URLError, TimeoutError, OSError) as error:
             reason = getattr(error, "reason", error)
