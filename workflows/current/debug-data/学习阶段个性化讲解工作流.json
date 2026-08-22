@@ -32,6 +32,37 @@
       },
       "teaching_history": {
         "events": []
+      },
+      "initial_assessment_context": {
+        "basis": "formal_initial_assessment",
+        "assessment_id": "ASSESS-INITIAL-001",
+        "knowledge_point_id": "KN_JAVA_ENCAPSULATION",
+        "coverage_status": "assessed",
+        "evidence": {
+          "evidence_status": "needs_support",
+          "mastery": 35,
+          "confidence": 0.55,
+          "source_event_ids": ["EVID-INITIAL-001"]
+        },
+        "performance": {
+          "correct_count": 0,
+          "incorrect_count": 1,
+          "skipped_count": 0
+        },
+        "presentation_requirements": [
+          "围绕初次测评暴露的薄弱点解释根因、边界和常见误区。"
+        ]
+      },
+      "web_evidence_pack": {
+        "status": "ready",
+        "evidence": [
+          {
+            "title": "Java Platform SE Documentation",
+            "source": "Oracle 官方文档",
+            "url": "https://docs.oracle.com/javase/",
+            "quote": "Encapsulation controls access to an object's state through its public operations."
+          }
+        ]
       }
     },
     "strategy": {
@@ -62,5 +93,5 @@
       "pace_factor": 0.9,
       "scaffold_preference": "moderate"
     },
-    "kb_text": "课程依据：封装要求字段保持 private，通过 public 方法提供受控访问。数组或可变集合的 getter 不应直接暴露内部引用，应返回副本或不可变视图；setter 应完成 null、范围和业务规则校验。"
+    "kb_text": "【Java Platform SE Documentation】\nEncapsulation controls access to an object's state through its public operations.\n来源：Oracle 官方文档；URL：https://docs.oracle.com/javase/"
 }

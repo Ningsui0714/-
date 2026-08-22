@@ -416,6 +416,7 @@ class DiscoveryApiTests(unittest.TestCase):
             request_style="workflow_v1",
             request_timeout=5,
             seed_demo=False,
+            knowledge_retrieval_enabled=False,
         )
         self.server = create_server(settings)
         self.thread = threading.Thread(target=self.server.serve_forever, daemon=True)

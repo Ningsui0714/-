@@ -1,0 +1,540 @@
+flowMeta:
+  name: 知识点讲解质量审核
+  description: 知识点讲解质量审核
+  avatarIcon: https://openres.xfyun.cn/xfyundoc/2026-01-13/14430b84-fdb8-4443-b1ff-02964d9cc8a0/1768290625890/18%402x.png
+  avatarColor: '#FFEAD5'
+  advancedConfig: '{"prologue":{"enabled":true,"inputExample":["","",""]},"textToSpeech":{"enabled":true,"vcn_cn":"x4_lingxiaoqi","vcn_en":"x4_EnUs_Luna"},"needGuide":false}'
+  category: 17
+  dslVersion: v1
+flowData:
+  nodes:
+  - id: node-start::d61b0f71-87ee-475e-93ba-f1607f0ce783
+    dragging: false
+    selected: false
+    width: 255
+    height: 115
+    position:
+      x: 26.47796305584137
+      y: 528.9308442395825
+    positionAbsolute:
+      x: 26.47796305584137
+      y: 528.9308442395825
+    type: 开始节点
+    data:
+      allowInputReference: false
+      allowOutputReference: true
+      label: 开始
+      status: ''
+      nodeMeta:
+        aliasName: 开始节点
+        nodeType: 基础节点
+      inputs: [
+        ]
+      outputs:
+      - id: 0918514b-72a8-4646-8dd9-ff4a8fc26d44
+        name: AGENT_USER_INPUT
+        nameErrMsg: ''
+        schema:
+          type: string
+          default: 用户本轮对话输入内容
+        required: true
+        deleteDisabled: true
+      nodeParam: {
+        }
+      icon: https://oss-beijing-m8.openstorage.cn/pro-bucket/sparkBot/common/workflow/icon/start-node-icon.png
+      description: 工作流的开启节点，用于定义流程调用所需的业务变量信息。
+      updatable: false
+  - id: node-end::cda617af-551e-462e-b3b8-3bb9a041bf88
+    dragging: false
+    selected: false
+    width: 255
+    height: 115
+    position:
+      x: 1713.9213505514308
+      y: 585.8203742560893
+    positionAbsolute:
+      x: 1713.9213505514308
+      y: 585.8203742560893
+    type: 结束节点
+    data:
+      allowInputReference: true
+      allowOutputReference: false
+      label: 结束
+      references: [
+        ]
+      status: ''
+      nodeMeta:
+        aliasName: 结束节点
+        nodeType: 基础节点
+      inputs:
+      - id: 82de2b42-a059-4c98-bffb-b6b4800fcac9
+        name: final_result_json
+        nameErrMsg: ''
+        schema:
+          type: string
+          value:
+            type: ref
+            content:
+              name: final_result_json
+              id: 766b08df-9b82-4ed1-8552-b1335e3f8733
+              nodeId: ifly-code::b101e09c-f071-45e6-b176-7e19af049bbf
+            contentErrMsg: ''
+        fileType: ''
+      outputs: [
+        ]
+      nodeParam:
+        template: '{{final_result_json}}'
+        streamOutput: true
+        templateErrMsg: ''
+        outputMode: 1
+      icon: https://oss-beijing-m8.openstorage.cn/pro-bucket/sparkBot/common/workflow/icon/end-node-icon.png
+      description: 工作流的结束节点，用于输出工作流运行后的最终结果。
+      updatable: false
+  - id: ifly-code::15d099e0-eea7-44bf-89c9-63a9b56a2680
+    dragging: false
+    selected: false
+    width: 255
+    height: 141
+    position:
+      x: 385.3198790865819
+      y: 529.8019556059933
+    positionAbsolute:
+      x: 385.3198790865819
+      y: 529.8019556059933
+    type: 代码
+    data:
+      allowInputReference: true
+      allowOutputReference: true
+      label: 校验审核输入
+      labelEdit: false
+      references: [
+        ]
+      status: ''
+      nodeMeta:
+        aliasName: 代码
+        nodeType: 工具
+      inputs:
+      - id: 80325dce-5b5a-434a-8179-6a61904dabbf
+        name: raw_input
+        nameErrMsg: ''
+        schema:
+          type: string
+          value:
+            type: ref
+            content:
+              name: AGENT_USER_INPUT
+              id: 0918514b-72a8-4646-8dd9-ff4a8fc26d44
+              nodeId: node-start::d61b0f71-87ee-475e-93ba-f1607f0ce783
+            contentErrMsg: ''
+        fileType: ''
+      outputs:
+      - id: a19ea0f4-1c23-4184-87c0-3b6defc8ec1a
+        name: audit_context
+        nameErrMsg: ''
+        schema:
+          type: string
+          properties: [
+            ]
+          default: ''
+      nodeParam:
+        uid: ''
+        code: |-
+          import json
+
+          def _parse(raw_input):
+              value = raw_input
+              for _ in range(3):
+                  if isinstance(value, dict):
+                      value = value.get("input", value.get("AGENT_USER_INPUT", value))
+                      if isinstance(value, dict):
+                          return value
+                      continue
+                  text = str(value or "").strip()
+                  if not text:
+                      raise ValueError("AGENT_USER_INPUT 不能为空")
+                  value = json.loads(text, strict=False)
+              if not isinstance(value, dict):
+                  raise ValueError("输入必须是 JSON 对象")
+              return value
+
+          def main(raw_input):
+              data = _parse(raw_input)
+              evidence = data.get("evidence")
+              blocks = data.get("content_blocks")
+              local_audit = data.get("local_audit")
+              if not isinstance(evidence, list) or not evidence:
+                  raise ValueError("evidence 必须是非空数组")
+              if not isinstance(blocks, list) or not blocks:
+                  raise ValueError("content_blocks 必须是非空数组")
+              if not isinstance(local_audit, dict):
+                  raise ValueError("local_audit 必须是对象")
+              for item in evidence:
+                  if not isinstance(item, dict) or not all(str(item.get(key) or "").strip() for key in ("title", "url", "quote")):
+                      raise ValueError("每条 evidence 必须包含 title、url 和 quote")
+              for block in blocks:
+                  if not isinstance(block, dict) or not str(block.get("type") or "").strip() or not str(block.get("source") or "").strip():
+                      raise ValueError("每个 content_block 必须包含 type 和 source")
+              context = {"evidence": evidence, "content_blocks": blocks, "local_audit": local_audit}
+              return {"audit_context": json.dumps(context, ensure_ascii=False, separators=(",", ":"))}
+        appId: ''
+        codeErrMsg: ''
+      icon: https://oss-beijing-m8.openstorage.cn/SparkBotProd/icon/icon-wrapper-question.svg
+      description: 面向开发者提供代码开发能力，目前仅支持python语言，允许使用该节点已定义的变量作为参数传入，返回语句用于输出函数的结果
+      updatable: false
+  - id: spark-llm::d4fcff0a-911c-4aac-9da3-8ab6c7ebad2d
+    dragging: false
+    selected: false
+    width: 255
+    height: 123
+    position:
+      x: 750.2001662618809
+      y: 562.4219587063371
+    positionAbsolute:
+      x: 750.2001662618809
+      y: 562.4219587063371
+    type: 大模型
+    data:
+      allowInputReference: true
+      allowOutputReference: true
+      label: 审核讲解证据
+      labelEdit: false
+      references: [
+        ]
+      status: ''
+      nodeMeta:
+        aliasName: 大模型
+        nodeType: 基础节点
+      inputs:
+      - id: d1ab8f3b-2fba-45e5-bc2c-8284f4d6e95a
+        name: audit_context
+        nameErrMsg: ''
+        schema:
+          type: string
+          value:
+            type: ref
+            content:
+              name: audit_context
+              id: a19ea0f4-1c23-4184-87c0-3b6defc8ec1a
+              nodeId: ifly-code::15d099e0-eea7-44bf-89c9-63a9b56a2680
+            contentErrMsg: ''
+        fileType: ''
+      outputs:
+      - id: 68c5159e-72d2-443b-ad58-39f34b832c75
+        name: output
+        nameErrMsg: ''
+        schema:
+          type: string
+          default: ''
+      nodeParam:
+        topK: 4
+        template: '{{audit_context}}'
+        modelId: 10000033
+        enableChatHistoryV2:
+          isEnabled: false
+          rounds: 1
+        auditing: default
+        llmId: 10000033
+        url: wss://maas-api.cn-huabei-1.xf-yun.com/v1.1/chat
+        multiMode: false
+        uid: ''
+        modelName: Kimi-K2.5
+        patchId: '0'
+        isThink: false
+        templateErrMsg: ''
+        domain: xopkimik25
+        appId: ''
+        maxTokens: 2048
+        temperature: 0.5
+        systemTemplate: |-
+          你是知识讲解质量审核器。
+
+          输入是一个 JSON 对象，包含：
+          - evidence：可核验证据数组；
+          - content_blocks：待审核讲解区块；
+          - local_audit：本地确定性审核结果。
+
+          只审核，不生成专业知识，不改写输入内容。
+          只能依据 evidence 的 title、source、url、quote，判断每个非 notice 区块的 source 是否能追溯到证据，及讲解内容是否与引用证据相关。
+
+          判定规则：
+          1. local_audit.status 不是 passed，必须 rejected。
+          2. 任一非 notice 区块没有 source，必须 rejected。
+          3. 任一非 notice 区块的 source 无法匹配 evidence 的 title、source 或 url，必须 rejected。
+          4. 任一区块的专业表述无法由对应 evidence.quote 支撑，必须 rejected。
+          5. 全部区块均可追溯且 local_audit.status=passed，才可以 approved。
+
+          你的回答必须且只能是以下 JSON 格式：
+          {"status":"ok","workflow_mode":"knowledge_audit","decision":"approved","reasons":["原因1"]}
+
+          约束：
+          - status 固定为 "ok"。
+          - workflow_mode 固定为 "knowledge_audit"。
+          - decision 只能是 "approved" 或 "rejected"。
+          - reasons 必须是至少包含一项的字符串数组。
+          - 不要输出 Markdown 代码块。
+          - 不要输出“审核结果：”等前缀。
+          - 不要解释规则，不要复述输入，不要输出任何 JSON 之外的字符。
+        model: spark
+        setAnswerContentErrMsg: ''
+        modelEnabled: true
+        serviceId: xopkimik25
+        respFormat: 0
+        llmIdErrMsg: ''
+      retryConfig:
+        maxRetries: 2
+        shouldRetry: false
+        customOutput: |-
+          {
+            "output": ""
+          }
+        errorStrategy: 0
+      icon: https://oss-beijing-m8.openstorage.cn/SparkBotProd/icon/icon-wrapper-model.svg
+      description: 根据输入的提示词，调用选定的大模型，对提示词作出回答
+      updatable: false
+  - id: ifly-code::b101e09c-f071-45e6-b176-7e19af049bbf
+    dragging: false
+    selected: false
+    width: 361
+    height: 141
+    position:
+      x: 1111.8982392861717
+      y: 562.152872588687
+    positionAbsolute:
+      x: 1111.8982392861717
+      y: 562.152872588687
+    type: 代码
+    data:
+      allowInputReference: true
+      allowOutputReference: true
+      label: 校验审核结论
+      labelEdit: false
+      references: [
+        ]
+      status: ''
+      nodeMeta:
+        aliasName: 代码
+        nodeType: 工具
+      inputs:
+      - id: fbc6b09c-16ec-4fa6-8860-0f49452332c7
+        name: model_output
+        nameErrMsg: ''
+        schema:
+          type: string
+          value:
+            type: ref
+            content:
+              name: output
+              id: 68c5159e-72d2-443b-ad58-39f34b832c75
+              nodeId: spark-llm::d4fcff0a-911c-4aac-9da3-8ab6c7ebad2d
+            contentErrMsg: ''
+        fileType: ''
+      - id: 731f3e3c-f9d6-4f30-a306-5610547a071c
+        name: audit_context
+        nameErrMsg: ''
+        schema:
+          type: string
+          value:
+            type: ref
+            content:
+              name: audit_context
+              id: a19ea0f4-1c23-4184-87c0-3b6defc8ec1a
+              nodeId: ifly-code::15d099e0-eea7-44bf-89c9-63a9b56a2680
+            contentErrMsg: ''
+        fileType: ''
+      outputs:
+      - id: 766b08df-9b82-4ed1-8552-b1335e3f8733
+        name: final_result_json
+        nameErrMsg: ''
+        schema:
+          type: string
+          default: ''
+      nodeParam:
+        uid: ''
+        code: |
+          import json
+
+
+          def _json_object(value, field_name):
+              if isinstance(value, dict):
+                  for key in ("output", "content", "text", "data"):
+                      nested = value.get(key)
+                      if nested not in (None, "") and not isinstance(nested, (list, int, float, bool)):
+                          try:
+                              return _json_object(nested, field_name)
+                          except Exception:
+                              pass
+                  return value
+
+              text = str(value or "").strip()
+              fence = chr(96) * 3
+              if text.startswith(fence):
+                  first_line_end = text.find("\n")
+                  if first_line_end >= 0:
+                      text = text[first_line_end + 1:]
+                  if text.rstrip().endswith(fence):
+                      text = text.rstrip()[:-3]
+                  text = text.strip()
+
+              start = text.find("{")
+              end = text.rfind("}")
+              if start < 0 or end < start:
+                  raise ValueError(field_name + " 中未找到 JSON 对象")
+
+              try:
+                  return json.loads(text[start:end + 1], strict=False)
+              except Exception as exc:
+                  raise ValueError(field_name + " 不是合法 JSON：" + str(exc)) from exc
+
+
+          def _has_trace(block, evidence):
+              source = str(block.get("source") or "").strip().casefold()
+              if not source:
+                  return False
+
+              for item in evidence:
+                  if not isinstance(item, dict):
+                      continue
+                  for key in ("title", "source", "url"):
+                      candidate = str(item.get(key) or "").strip().casefold()
+                      if candidate and (candidate in source or source in candidate):
+                          return True
+              return False
+
+
+          def main(model_output, audit_context):
+              try:
+                  result = _json_object(model_output, "大模型输出")
+                  context = _json_object(audit_context, "审核上下文")
+
+                  if result.get("status") != "ok":
+                      raise ValueError("大模型 status 必须为 ok")
+
+                  decision = str(result.get("decision") or "").strip().lower()
+                  if decision not in ("approved", "rejected"):
+                      raise ValueError("大模型 decision 必须为 approved 或 rejected")
+
+                  model_reasons = result.get("reasons")
+                  if not isinstance(model_reasons, list):
+                      raise ValueError("大模型 reasons 必须为数组")
+
+                  reasons = [
+                      str(item).strip()
+                      for item in model_reasons
+                      if str(item).strip()
+                  ]
+                  if not reasons:
+                      raise ValueError("大模型 reasons 不能为空")
+
+                  evidence = context.get("evidence")
+                  blocks = context.get("content_blocks")
+                  local_audit = context.get("local_audit")
+
+                  if not isinstance(evidence, list) or not evidence:
+                      raise ValueError("审核上下文 evidence 必须为非空数组")
+                  if not isinstance(blocks, list) or not blocks:
+                      raise ValueError("审核上下文 content_blocks 必须为非空数组")
+                  if not isinstance(local_audit, dict):
+                      raise ValueError("审核上下文 local_audit 必须为对象")
+
+                  trace_ok = True
+                  for block in blocks:
+                      if not isinstance(block, dict):
+                          trace_ok = False
+                          break
+                      if str(block.get("type") or "").strip() == "notice":
+                          continue
+                      if not _has_trace(block, evidence):
+                          trace_ok = False
+                          break
+
+                  deterministic_ok = (
+                      str(local_audit.get("status") or "").strip().lower() == "passed"
+                      and trace_ok
+                  )
+
+                  if not deterministic_ok:
+                      decision = "rejected"
+                      reasons = ["本地审核未通过或存在无法追溯到证据的讲解区块"]
+
+                  output = {
+                      "status": "ok",
+                      "workflow_mode": "knowledge_audit",
+                      "decision": decision,
+                      "reasons": reasons[:4],
+                  }
+
+              except Exception as exc:
+                  raw_output = str(model_output or "").strip().replace("\n", " ")
+                  if not raw_output:
+                      raw_output = "【空输出】"
+
+                  output = {
+                      "status": "system_retryable",
+                      "workflow_mode": "knowledge_audit",
+                      "decision": "rejected",
+                      "reasons": [
+                          "审核结论校验失败：" + str(exc)[:160],
+                          "大模型原始输出：" + raw_output[:500],
+                      ],
+                  }
+
+              return {
+                  "final_result_json": json.dumps(
+                      output,
+                      ensure_ascii=False,
+                      separators=(",", ":"),
+                  )
+              }
+        appId: ''
+        handlingEdge: normal_one_of::6366f503-52ce-47c1-afef-af958bb2b1b3
+        setAnswerContentErrMsg: ''
+        exceptionHandlingEdge: fail_one_of::4dfaa9b5-45b2-4bae-8292-cbda5255b60d
+        codeErrMsg: ''
+      retryConfig:
+        shouldRetry: true
+        customOutput: |-
+          {
+            "final_result_json": "{\"status\":\"system_retryable\",\"workflow_mode\":\"knowledge_audit\",\"decision\":\"rejected\",\"reasons\":[\"审核结论节点执行失败，请稍后重试\"]}"
+          }
+        errorStrategy: 1
+      icon: https://oss-beijing-m8.openstorage.cn/SparkBotProd/icon/icon-wrapper-question.svg
+      description: 面向开发者提供代码开发能力，目前仅支持python语言，允许使用该节点已定义的变量作为参数传入，返回语句用于输出函数的结果
+      updatable: false
+  edges:
+  - source: node-start::d61b0f71-87ee-475e-93ba-f1607f0ce783
+    target: ifly-code::15d099e0-eea7-44bf-89c9-63a9b56a2680
+    type: customEdge
+    id: reactflow__edge-node-start::d61b0f71-87ee-475e-93ba-f1607f0ce783-ifly-code::15d099e0-eea7-44bf-89c9-63a9b56a2680
+    markerEnd:
+      color: '#6356EA'
+      type: arrow
+    data:
+      edgeType: curve
+  - source: ifly-code::15d099e0-eea7-44bf-89c9-63a9b56a2680
+    target: spark-llm::d4fcff0a-911c-4aac-9da3-8ab6c7ebad2d
+    type: customEdge
+    id: reactflow__edge-ifly-code::15d099e0-eea7-44bf-89c9-63a9b56a2680-spark-llm::d4fcff0a-911c-4aac-9da3-8ab6c7ebad2d
+    markerEnd:
+      color: '#6356EA'
+      type: arrow
+    data:
+      edgeType: curve
+  - source: spark-llm::d4fcff0a-911c-4aac-9da3-8ab6c7ebad2d
+    target: ifly-code::b101e09c-f071-45e6-b176-7e19af049bbf
+    type: customEdge
+    id: reactflow__edge-spark-llm::d4fcff0a-911c-4aac-9da3-8ab6c7ebad2d-ifly-code::b101e09c-f071-45e6-b176-7e19af049bbf
+    markerEnd:
+      color: '#6356EA'
+      type: arrow
+    data:
+      edgeType: curve
+  - source: ifly-code::b101e09c-f071-45e6-b176-7e19af049bbf
+    sourceHandle: normal_one_of::6366f503-52ce-47c1-afef-af958bb2b1b3
+    target: node-end::cda617af-551e-462e-b3b8-3bb9a041bf88
+    type: customEdge
+    id: reactflow__edge-ifly-code::b101e09c-f071-45e6-b176-7e19af049bbfnormal_one_of::6366f503-52ce-47c1-afef-af958bb2b1b3-node-end::cda617af-551e-462e-b3b8-3bb9a041bf88
+    markerEnd:
+      color: '#6356EA'
+      type: arrow
+    data:
+      edgeType: curve

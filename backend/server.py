@@ -27,6 +27,7 @@ from datetime import datetime, timezone, timedelta
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from typing import Any
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from urllib.parse import parse_qs, quote_plus, unquote, urlencode, urlparse
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
@@ -37,6 +38,11 @@ try:
     from backend.domain import LearningDomainStore, StudentModelCache, new_id
 except ModuleNotFoundError:
     from domain import LearningDomainStore, StudentModelCache, new_id
+
+try:
+    from backend.knowledge_retrieval import KnowledgeEvidenceRetriever
+except ModuleNotFoundError:
+    from knowledge_retrieval import KnowledgeEvidenceRetriever
 
 try:
     from backend.goal_engine import (
@@ -96,6 +102,7 @@ MAX_BODY_BYTES = 2 * 1024 * 1024
 def load_environment_file(path: Path) -> None:
     if not path.is_file():
         return
+    loaded_keys: set[str] = set()
     for raw_line in path.read_text(encoding="utf-8").splitlines():
         line = raw_line.strip()
         if not line or line.startswith("#") or "=" not in line:
@@ -105,8 +112,9 @@ def load_environment_file(path: Path) -> None:
         value = value.strip()
         if len(value) >= 2 and value[0] == value[-1] and value[0] in {"'", '"'}:
             value = value[1:-1]
-        if key and key not in os.environ:
+        if key and (key not in os.environ or key in loaded_keys):
             os.environ[key] = value
+            loaded_keys.add(key)
 
 
 def utc_now() -> str:
@@ -209,6 +217,8 @@ class Settings:
     recommend_flow_id: str = ""
     chat_flow_id: str = ""
     quiz_flow_id: str = ""
+    knowledge_planning_flow_id: str = ""
+    knowledge_audit_flow_id: str = ""
     wf04_flow_id: str = ""
     wf04_api_url: str = ""
     wf04_api_key: str = ""
@@ -230,6 +240,10 @@ class Settings:
     learning_task_conversion_token: str = ""
     learning_task_conversion_timeout: float = 300
     learning_task_conversion_artifact_base_url: str = "http://82.156.199.145/api/v1/learning-task-conversion/tasks"
+    knowledge_retrieval_enabled: bool = True
+    knowledge_retrieval_url: str = "https://www.bing.com/search?format=rss&q={query}"
+    knowledge_retrieval_timeout: float = 12
+    knowledge_retrieval_max_results: int = 6
     allowed_origins: tuple[str, ...] = (
         "http://127.0.0.1:4173",
         "http://localhost:4173",
@@ -277,6 +291,12 @@ class Settings:
             recommend_flow_id=os.getenv("XINGCHEN_RECOMMEND_FLOW_ID", "").strip(),
             chat_flow_id=os.getenv("XINGCHEN_CHAT_FLOW_ID", "").strip(),
             quiz_flow_id=os.getenv("XINGCHEN_QUIZ_FLOW_ID", "").strip(),
+            knowledge_planning_flow_id=os.getenv(
+                "XINGCHEN_KNOWLEDGE_PLANNING_FLOW_ID", ""
+            ).strip(),
+            knowledge_audit_flow_id=os.getenv(
+                "XINGCHEN_KNOWLEDGE_AUDIT_FLOW_ID", ""
+            ).strip(),
             wf04_flow_id=os.getenv("XINGCHEN_WF04_FLOW_ID", "").strip(),
             wf04_api_url=os.getenv("XINGCHEN_WF04_API_URL", "").strip(),
             wf04_api_key=os.getenv("XINGCHEN_WF04_API_KEY", "").strip(),
@@ -324,6 +344,19 @@ class Settings:
                 "LEARNING_TASK_CONVERSION_ARTIFACT_BASE_URL",
                 "http://82.156.199.145/api/v1/learning-task-conversion/tasks",
             ).strip().rstrip("/"),
+            knowledge_retrieval_enabled=os.getenv(
+                "KNOWLEDGE_RETRIEVAL_ENABLED", "1"
+            ).strip().lower() in {"1", "true", "yes"},
+            knowledge_retrieval_url=os.getenv(
+                "KNOWLEDGE_RETRIEVAL_URL",
+                "https://www.bing.com/search?format=rss&q={query}",
+            ).strip(),
+            knowledge_retrieval_timeout=max(
+                1.0, float(os.getenv("KNOWLEDGE_RETRIEVAL_TIMEOUT", "12"))
+            ),
+            knowledge_retrieval_max_results=max(
+                1, int(os.getenv("KNOWLEDGE_RETRIEVAL_MAX_RESULTS", "6"))
+            ),
             allowed_origins=allowed_origins,
             api_token=os.getenv("APP_API_TOKEN", "").strip(),
         )
@@ -417,6 +450,26 @@ class StateStore:
                 );
                 CREATE INDEX IF NOT EXISTS idx_project_lessons_project
                     ON project_lessons(project_id, student_id, updated_at DESC);
+                CREATE TABLE IF NOT EXISTS assessment_question_prebuilds (
+                    project_id TEXT NOT NULL,
+                    student_id TEXT NOT NULL,
+                    knowledge_point_id TEXT NOT NULL,
+                    assessment_type TEXT NOT NULL,
+                    generation_version TEXT NOT NULL,
+                    status TEXT NOT NULL,
+                    questions_json TEXT NOT NULL DEFAULT '[]',
+                    provider TEXT NOT NULL DEFAULT '',
+                    blueprint_json TEXT NOT NULL DEFAULT '{}',
+                    error_message TEXT NOT NULL DEFAULT '',
+                    generated_at TEXT NOT NULL DEFAULT '',
+                    updated_at TEXT NOT NULL,
+                    PRIMARY KEY(
+                        project_id, student_id, knowledge_point_id,
+                        assessment_type, generation_version
+                    )
+                );
+                CREATE INDEX IF NOT EXISTS idx_assessment_prebuilds_project
+                    ON assessment_question_prebuilds(project_id, student_id, updated_at DESC);
                 CREATE TABLE IF NOT EXISTS project_notes (
                     note_id TEXT PRIMARY KEY,
                     project_id TEXT NOT NULL,
@@ -746,6 +799,7 @@ class StateStore:
                 "assessment_evidence",
                 "assessment_runs",
                 "learning_task_handoffs",
+                "assessment_question_prebuilds",
                 "project_lessons",
                 "project_notes",
                 "project_messages",
@@ -931,6 +985,170 @@ class StateStore:
                     error_message[:500],
                     generated_at,
                     now,
+                ),
+            )
+            connection.commit()
+
+    def initialize_assessment_prebuilds(
+        self,
+        project_id: str,
+        student_id: str,
+        knowledge_point_ids: list[str],
+        assessment_type: str,
+        generation_version: str,
+    ) -> None:
+        now = utc_now()
+        with self._lock, closing(self._connect()) as connection:
+            for knowledge_point_id in knowledge_point_ids:
+                knowledge_point_id = str(knowledge_point_id or "").strip()
+                if not knowledge_point_id:
+                    continue
+                connection.execute(
+                    """
+                    INSERT INTO assessment_question_prebuilds(
+                        project_id, student_id, knowledge_point_id, assessment_type,
+                        generation_version, status, updated_at
+                    ) VALUES (?, ?, ?, ?, ?, 'queued', ?)
+                    ON CONFLICT(
+                        project_id, student_id, knowledge_point_id,
+                        assessment_type, generation_version
+                    ) DO NOTHING
+                    """,
+                    (
+                        project_id, student_id, knowledge_point_id,
+                        assessment_type, generation_version, now,
+                    ),
+                )
+            connection.commit()
+
+    def get_assessment_prebuild(
+        self,
+        project_id: str,
+        student_id: str,
+        knowledge_point_id: str,
+        assessment_type: str,
+        generation_version: str,
+    ) -> dict[str, Any] | None:
+        with self._lock, closing(self._connect()) as connection:
+            row = connection.execute(
+                """
+                SELECT project_id, student_id, knowledge_point_id,
+                       assessment_type, generation_version, status,
+                       questions_json, provider, blueprint_json, error_message,
+                       generated_at, updated_at
+                FROM assessment_question_prebuilds
+                WHERE project_id = ? AND student_id = ? AND knowledge_point_id = ?
+                  AND assessment_type = ? AND generation_version = ?
+                """,
+                (
+                    project_id, student_id, knowledge_point_id,
+                    assessment_type, generation_version,
+                ),
+            ).fetchone()
+        if not row:
+            return None
+        item = dict(row)
+        for source, target, fallback in (
+            ("questions_json", "questions", []),
+            ("blueprint_json", "blueprint", {}),
+        ):
+            try:
+                item[target] = json.loads(item.pop(source))
+            except json.JSONDecodeError:
+                item[target] = fallback
+        return item
+
+    def list_assessment_prebuilds(
+        self,
+        project_id: str,
+        student_id: str,
+        assessment_type: str,
+        generation_version: str,
+    ) -> list[dict[str, Any]]:
+        with self._lock, closing(self._connect()) as connection:
+            rows = connection.execute(
+                """
+                SELECT project_id, student_id, knowledge_point_id,
+                       assessment_type, generation_version, status,
+                       questions_json, provider, blueprint_json, error_message,
+                       generated_at, updated_at
+                FROM assessment_question_prebuilds
+                WHERE project_id = ? AND student_id = ?
+                  AND assessment_type = ? AND generation_version = ?
+                ORDER BY updated_at ASC, knowledge_point_id ASC
+                """,
+                (project_id, student_id, assessment_type, generation_version),
+            ).fetchall()
+        items = []
+        for row in rows:
+            item = dict(row)
+            try:
+                item["questions"] = json.loads(item.pop("questions_json"))
+            except json.JSONDecodeError:
+                item["questions"] = []
+            try:
+                item["blueprint"] = json.loads(item.pop("blueprint_json"))
+            except json.JSONDecodeError:
+                item["blueprint"] = {}
+            items.append(item)
+        return items
+
+    def set_assessment_prebuild_status(
+        self,
+        project_id: str,
+        student_id: str,
+        knowledge_point_id: str,
+        assessment_type: str,
+        generation_version: str,
+        status: str,
+        *,
+        questions: list[dict[str, Any]] | None = None,
+        provider: str = "",
+        blueprint: dict[str, Any] | None = None,
+        error_message: str = "",
+    ) -> None:
+        now = utc_now()
+        generated_at = now if status == "ready" else ""
+        with self._lock, closing(self._connect()) as connection:
+            connection.execute(
+                """
+                INSERT INTO assessment_question_prebuilds(
+                    project_id, student_id, knowledge_point_id, assessment_type,
+                    generation_version, status, questions_json, provider,
+                    blueprint_json, error_message, generated_at, updated_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT(
+                    project_id, student_id, knowledge_point_id,
+                    assessment_type, generation_version
+                ) DO UPDATE SET
+                    status = excluded.status,
+                    questions_json = CASE
+                        WHEN excluded.questions_json = '[]'
+                        THEN assessment_question_prebuilds.questions_json
+                        ELSE excluded.questions_json
+                    END,
+                    provider = CASE
+                        WHEN excluded.provider = '' THEN assessment_question_prebuilds.provider
+                        ELSE excluded.provider
+                    END,
+                    blueprint_json = CASE
+                        WHEN excluded.blueprint_json = '{}'
+                        THEN assessment_question_prebuilds.blueprint_json
+                        ELSE excluded.blueprint_json
+                    END,
+                    error_message = excluded.error_message,
+                    generated_at = CASE
+                        WHEN excluded.generated_at = ''
+                        THEN assessment_question_prebuilds.generated_at
+                        ELSE excluded.generated_at
+                    END,
+                    updated_at = excluded.updated_at
+                """,
+                (
+                    project_id, student_id, knowledge_point_id, assessment_type,
+                    generation_version, status, json_text(questions or []),
+                    provider[:80], json_text(blueprint or {}), error_message[:500],
+                    generated_at, now,
                 ),
             )
             connection.commit()
@@ -2062,6 +2280,8 @@ class VideoSearchGateway:
 
 
 class XingchenGateway:
+    LEARNING_REQUEST_TIMEOUT_SECONDS = 210.0
+
     STOP_REPLIES = {
         "不知道",
         "不清楚",
@@ -2151,6 +2371,24 @@ class XingchenGateway:
         self._require_remote_mode()
         return self._invoke_remote(
             "quiz", payload, self.settings.quiz_flow_id or self.settings.flow_id
+        )
+
+    def invoke_knowledge_planning_workflow(
+        self, payload: dict[str, Any]
+    ) -> dict[str, Any]:
+        if self.mode == "mock":
+            return {"status": "ok", "workflow_mode": "knowledge_planning", "queries": []}
+        self._require_remote_mode()
+        return self._invoke_remote(
+            "knowledge_planning", payload, self.settings.knowledge_planning_flow_id
+        )
+
+    def invoke_knowledge_audit_workflow(self, payload: dict[str, Any]) -> dict[str, Any]:
+        if self.mode == "mock":
+            return {"status": "ok", "workflow_mode": "knowledge_audit", "decision": "approved"}
+        self._require_remote_mode()
+        return self._invoke_remote(
+            "knowledge_audit", payload, self.settings.knowledge_audit_flow_id
         )
 
     def invoke_wf04_workflow(self, payload: dict[str, Any]) -> dict[str, Any]:
@@ -2290,6 +2528,16 @@ class XingchenGateway:
         )
         return bool(self.settings.flow_id or split_flows)
 
+    @staticmethod
+    def _remote_uid(workflow: str, payload: dict[str, Any]) -> str:
+        """Return the platform request UID without altering workflow payload data."""
+        student_id = str(payload.get("student_id", "anonymous"))
+        if workflow not in {"knowledge_planning", "knowledge_audit"}:
+            return student_id
+        if re.fullmatch(r"[0-9]+", student_id):
+            return student_id
+        return str(int(hashlib.sha256(student_id.encode("utf-8")).hexdigest()[:12], 16))
+
     def _invoke_remote(
         self, workflow: str, payload: dict[str, Any], flow_id: str
     ) -> dict[str, Any]:
@@ -2320,11 +2568,13 @@ class XingchenGateway:
                     "learning": "XINGCHEN_LEARNING_FLOW_ID",
                     "remediation": "XINGCHEN_REMEDIATION_FLOW_ID",
                     "wf04": "XINGCHEN_WF04_FLOW_ID",
+                    "knowledge_planning": "XINGCHEN_KNOWLEDGE_PLANNING_FLOW_ID",
+                    "knowledge_audit": "XINGCHEN_KNOWLEDGE_AUDIT_FLOW_ID",
                 }.get(workflow, "XINGCHEN_FLOW_ID")
                 raise GatewayError(f"未配置工作流 ID：{variable_name}")
             request_body = {
                 "flow_id": flow_id,
-                "uid": str(payload.get("student_id", "anonymous")),
+                "uid": self._remote_uid(workflow, payload),
                 "parameters": {
                     self.settings.input_key: json_text(payload),
                 },
@@ -2346,11 +2596,16 @@ class XingchenGateway:
             },
             method="POST",
         )
+        request_timeout = self.settings.request_timeout
+        if workflow == "learning":
+            request_timeout = max(
+                request_timeout, self.LEARNING_REQUEST_TIMEOUT_SECONDS
+            )
         max_attempts = 3 if workflow == "wf04" else 2
         last_wf04_execution_failure: tuple[Any, str] | None = None
         for attempt in range(max_attempts):
             try:
-                with urllib.request.urlopen(request, timeout=self.settings.request_timeout) as response:
+                with urllib.request.urlopen(request, timeout=request_timeout) as response:
                     response_text = response.read().decode("utf-8", errors="replace")
             except urllib.error.HTTPError as error:
                 detail = error.read().decode("utf-8", errors="replace")[:1000]
@@ -3064,6 +3319,16 @@ class XingchenGateway:
 
 
 class LearningApplication:
+    ASSESSMENT_GENERATION_VERSION = "question-pool-v3"
+    PROVISIONAL_QUESTION_TYPES = (
+        "choice", "choice", "choice",
+        "multiple_choice", "multiple_choice",
+        "judgment", "judgment",
+        "fill_blank", "fill_blank",
+        "short_answer", "short_answer",
+        "practical",
+    )
+
     def __init__(
         self,
         settings: Settings,
@@ -3079,6 +3344,15 @@ class LearningApplication:
         self.gateway = gateway
         self.video_search = video_search
         self.material_knowledge = MaterialKnowledgeGateway(settings)
+        self.knowledge_evidence_retriever = (
+            KnowledgeEvidenceRetriever(
+                settings.knowledge_retrieval_url,
+                timeout=settings.knowledge_retrieval_timeout,
+                max_results=settings.knowledge_retrieval_max_results,
+            )
+            if settings.knowledge_retrieval_enabled
+            else None
+        )
         self.domain = domain
         self.student_models = student_models
         self.knowledge_cache = knowledge_cache
@@ -3089,6 +3363,8 @@ class LearningApplication:
         self._video_cache_ttl = 3600
         self._lesson_generation_lock = threading.RLock()
         self._lesson_generation_projects: set[str] = set()
+        self._assessment_generation_lock = threading.RLock()
+        self._assessment_generation_projects: set[str] = set()
 
     @staticmethod
     def _default_student_model() -> dict[str, Any]:
@@ -3456,13 +3732,19 @@ class LearningApplication:
             ineffective,
             student_model,
         )
+        explicit_knowledge = context.get("kb_text")
+        kb_text = (
+            explicit_knowledge.strip()
+            if isinstance(explicit_knowledge, str) and explicit_knowledge.strip()
+            else self._knowledge_text(context, "learning", action)
+        )
         return {
             "student_id": student_id,
             "session_id": str(context.get("session_id", "")),
             "context": context,
             "strategy": strategy,
             "student_profile": student_model,
-            "kb_text": self._knowledge_text(context, "learning", action),
+            "kb_text": kb_text,
         }
 
     def _remediation_workflow_payload(
@@ -4989,7 +5271,7 @@ class LearningApplication:
         for token in tokens:
             cleaned = token
             for prefix in ("我想", "我要", "希望", "计划", "准备", "学习", "掌握", "通过"):
-                if cleaned.startswith(prefix) and len(cleaned) > len(prefix) + 1:
+                while cleaned.startswith(prefix) and len(cleaned) > len(prefix) + 1:
                     cleaned = cleaned[len(prefix):]
             if cleaned in ignored or re.fullmatch(r"[一二两三四五六七八九十百\d]+(?:天|周|月|年)", cleaned):
                 continue
@@ -5436,11 +5718,8 @@ class LearningApplication:
             student_id,
             [item for item in as_list(learning_path.get("items")) if isinstance(item, dict)],
         )
-        self._queue_project_lesson_generation(
-            project_id,
-            student_id,
-            background=self.gateway.mode == "remote",
-        )
+        if self.gateway.mode == "remote":
+            self._queue_project_assessment_generation(project_id, student_id)
         return {
             "status": "ok",
             "project": self._project_payload(project_id, goal_name, "created", state),
@@ -7844,6 +8123,12 @@ class LearningApplication:
             state, as_dict(state.get("learning_plan"))
         )
         self.store.save_project_state(project_id, state, status="assessment_intake")
+        if level == "zero_foundation":
+            self._queue_project_lesson_generation(
+                project_id,
+                student_id,
+                background=self.gateway.mode == "remote",
+            )
         return {
             "status": "ok",
             "project_id": project_id,
@@ -8023,6 +8308,11 @@ class LearningApplication:
             if str(prerequisite_id).strip()
         ]
         goal = as_dict(state.get("goal"))
+        goal_text = str(goal.get("original_text") or goal.get("goal_name") or "")
+        goal_anchor_terms = self._candidate_goal_keywords(
+            goal_text,
+            str(goal.get("goal_name") or ""),
+        )
         supplied_context = as_dict(supplied_context)
         knowledge_evidence = [
             {
@@ -8054,6 +8344,7 @@ class LearningApplication:
                 str(graph_point.get("description") or ""),
                 str(point.get("learning_outcome") or ""),
                 str(point.get("goal_connection") or ""),
+                *goal_anchor_terms,
                 *[str(value) for value in as_list(point.get("video_context_keywords"))],
                 *[str(item.get("title") or "") for item in evidence_items],
                 *[str(item.get("content") or "")[:500] for item in evidence_items],
@@ -8069,6 +8360,7 @@ class LearningApplication:
             "learning_outcome": str(point.get("learning_outcome") or "")[:240],
             "prerequisite_knowledge": prerequisite_names,
             "goal_name": str(goal.get("goal_name") or "")[:240],
+            "goal_anchor_terms": goal_anchor_terms,
             "target_outcome": str(as_dict(goal.get("constraints")).get("target_outcome") or "")[:240],
             "source_status": str(point.get("source_status") or "candidate"),
             "core_concepts": core_concepts,
@@ -8109,6 +8401,54 @@ class LearningApplication:
             raise GatewayError(
                 "WF04 题目没有同时在题干和答案依据中使用当前知识点的核心概念"
             )
+
+    @staticmethod
+    def _validate_wf04_candidate_scope(
+        request: dict[str, Any], spec: dict[str, Any], public: dict[str, Any]
+    ) -> None:
+        """Reject candidate questions that drift into an undeclared domain."""
+        context = as_dict(request.get("knowledge_context"))
+        if str(context.get("source_status") or "").strip().lower() != "candidate":
+            return
+        visible_text = " ".join(
+            [
+                str(public.get("title") or ""),
+                str(public.get("prompt") or ""),
+                *[str(value) for value in as_dict(public.get("options")).values()],
+            ]
+        ).casefold()
+        answer_text = " ".join(
+            [
+                str(spec.get("expected_answer") or ""),
+                str(spec.get("reference_answer") or ""),
+                *[str(value) for value in as_list(spec.get("rubric"))],
+            ]
+        ).casefold()
+        combined_text = f"{visible_text} {answer_text}"
+        context_text = json_text({
+            "goal_name": context.get("goal_name"),
+            "goal_anchor_terms": context.get("goal_anchor_terms"),
+            "definition": context.get("definition"),
+            "goal_connection": context.get("goal_connection"),
+            "learning_outcome": context.get("learning_outcome"),
+            "core_concepts": context.get("core_concepts"),
+            "knowledge_evidence": context.get("knowledge_evidence"),
+        }).casefold()
+        for technology in ("java", "python", "javascript", "c++", "c语言"):
+            if technology in combined_text and technology not in context_text:
+                raise GatewayError(
+                    f"WF04 题目引入了当前候选目标未声明的技术语境：{technology}"
+                )
+        anchors = [
+            str(value).strip().casefold()
+            for value in as_list(context.get("goal_anchor_terms"))
+            if len(str(value).strip()) >= 2
+        ]
+        if anchors and not any(
+            anchor in visible_text and anchor in answer_text
+            for anchor in anchors
+        ):
+            raise GatewayError("WF04 题目没有同时在题干和答案依据中绑定当前学习目标")
 
     @staticmethod
     def _wf04_question_candidate(
@@ -8173,8 +8513,20 @@ class LearningApplication:
                 part = part.strip()
                 if len(part) >= 2:
                     point_terms.append(part.casefold())
-        if point_terms and not any(term in compact_content for term in point_terms):
+        # 候选知识点(KN-CUSTOM-* 路径生成)的名称是"学习XX"式过程性表述而非
+        # 技术术语,WF04 按知识上下文出题时题干不可能也不应包含该名称;
+        # 强制匹配会导致重生成必败。此类题目放宽名称语境检查,由
+        # _validate_wf04_knowledge_linkage 用知识条目核心概念兜底。
+        source_status = str(
+            as_dict(request.get("knowledge_context")).get("source_status") or ""
+        ).strip().lower()
+        if (
+            source_status != "candidate"
+            and point_terms
+            and not any(term in compact_content for term in point_terms)
+        ):
             raise GatewayError("WF04 题干未出现可验证的目标知识点语境")
+        LearningApplication._validate_wf04_candidate_scope(request, spec, public)
         LearningApplication._validate_wf04_knowledge_linkage(request, spec, public)
 
         options = as_dict(public.get("options"))
@@ -8232,6 +8584,7 @@ class LearningApplication:
         rejection_reasons: list[str] = []
         unsupported_type_reasons: list[str] = []
         last_was_model_output_invalid = False
+        last_was_question_type_invalid = False
         retryable_generation_error_codes = {
             "E_MODEL_OUTPUT_INVALID",
             "E_MODEL_QUESTION_TYPE_INVALID",
@@ -8245,6 +8598,10 @@ class LearningApplication:
             "E_RUBRIC_MISSING",
             "E_VARIANT_NOT_CHANGED",
         }
+        question_type_invalid_codes = {
+            "E_MODEL_QUESTION_TYPE_INVALID",
+            "E_QUESTION_TYPE_MISMATCH",
+        }
         for attempt in range(1, max(1, max_attempts) + 1):
             task_contract = dict(as_dict(request.get("task_contract")))
             if rejection_reasons:
@@ -8255,7 +8612,7 @@ class LearningApplication:
                         "请重新输出一个符合 ZHIXING_WF04_RESULT.v1 的完整题目 JSON，"
                         "必须同时包含 question_spec 与 public_question 两个对象。"
                     )
-                elif unsupported_type_reasons:
+                elif last_was_question_type_invalid or unsupported_type_reasons:
                     requested_question_type = str(
                         request.get("requested_question_type") or ""
                     ).strip().lower()
@@ -8295,6 +8652,9 @@ class LearningApplication:
                     )
                     last_was_model_output_invalid = (
                         workflow_error_code == "E_MODEL_OUTPUT_INVALID"
+                    )
+                    last_was_question_type_invalid = (
+                        workflow_error_code in question_type_invalid_codes
                     )
                     continue
                 self._validate_wf04_result(revised_request, result)
@@ -8668,7 +9028,12 @@ class LearningApplication:
         return normalized, provider, blueprint
 
     def _provisional_assessment_questions(
-        self, student_id: str, project_id: str, state: dict[str, Any], knowledge_point_id: str
+        self,
+        student_id: str,
+        project_id: str,
+        state: dict[str, Any],
+        knowledge_point_id: str,
+        question_types: tuple[str, ...] | None = None,
     ) -> tuple[list[dict[str, Any]], str, dict[str, Any]]:
         path_items = self._project_goal_knowledge_points(state)
         if knowledge_point_id:
@@ -8680,10 +9045,7 @@ class LearningApplication:
         scope = [dict(item) for item in path_items[:6]]
         if not scope:
             raise ApiError(409, "ASSESSMENT_SCOPE_EMPTY", "当前项目还没有可练习的学习节点")
-        required_types = (
-            "choice", "multiple_choice", "judgment", "fill_blank",
-            "short_answer", "practical",
-        )
+        required_types = question_types or self.PROVISIONAL_QUESTION_TYPES
         normalized: list[dict[str, Any]] = []
         generation_attempts: list[dict[str, Any]] = []
         for index, question_type in enumerate(required_types):
@@ -8707,6 +9069,7 @@ class LearningApplication:
                     "core_concepts",
                     "knowledge_evidence",
                     "source_refs",
+                    "source_status",
                 )
                 if key in knowledge_context
             }
@@ -8851,9 +9214,52 @@ class LearningApplication:
         if provisional:
             goal_key = "custom"
             goal_label = str(project.get("goal_name") or "自定义目标")
-            questions, provider, blueprint = self._provisional_assessment_questions(
-                student_id, project_id, state, requested_point
-            )
+            cached = self.store.get_assessment_prebuild(
+                project_id,
+                student_id,
+                requested_point,
+                assessment_type,
+                self.ASSESSMENT_GENERATION_VERSION,
+            ) if requested_point else None
+            if not cached or str(cached.get("status") or "") != "ready":
+                if self.gateway.mode != "remote":
+                    questions, provider, blueprint = self._provisional_assessment_questions(
+                        student_id, project_id, state, requested_point,
+                    )
+                    if requested_point:
+                        self.store.set_assessment_prebuild_status(
+                            project_id,
+                            student_id,
+                            requested_point,
+                            assessment_type,
+                            self.ASSESSMENT_GENERATION_VERSION,
+                            "ready",
+                            questions=questions,
+                            provider=provider,
+                            blueprint=blueprint,
+                        )
+                    cached = {
+                        "status": "ready",
+                        "questions": questions,
+                        "provider": provider,
+                        "blueprint": blueprint,
+                    }
+                else:
+                    self._queue_project_assessment_generation(project_id, student_id)
+                    cached = cached or {}
+            if not cached or str(cached.get("status") or "") != "ready":
+                status = str(as_dict(cached).get("status") or "queued")
+                if status == "failed":
+                    message = "题目生成失败，系统已安排重试，请稍候片刻再打开题单"
+                else:
+                    message = "该知识点的题目正在后台生成，请稍候片刻再打开题单"
+                raise ApiError(409, "ASSESSMENT_GENERATION_IN_PROGRESS", message)
+            questions = [
+                item for item in as_list(cached.get("questions"))
+                if isinstance(item, dict)
+            ]
+            provider = str(cached.get("provider") or "wf04_api")
+            blueprint = as_dict(cached.get("blueprint"))
         else:
             goal_key = self.PROJECT_GOAL_DIAGNOSIS.get(
                 str(project.get("goal_id", "")), "daily"
@@ -9175,6 +9581,15 @@ class LearningApplication:
         )
         self.store.complete_assessment_run(expected_assessment_id, summary)
         self.store.save_project_state(project_id, state, status="assessment_done")
+        if (
+            formal_evidence
+            and str(session.get("assessment_type") or "") == "initial_diagnostic"
+        ):
+            self._queue_project_lesson_generation(
+                project_id,
+                student_id,
+                background=self.gateway.mode == "remote",
+            )
         if formal_evidence:
             self.student_models.increment_event(student_id)
             self._trigger_profile_refresh(student_id, force=True)
@@ -9480,8 +9895,59 @@ class LearningApplication:
         practice_type = (
             "self_check" if planning_ready and assessment_ready else "provisional_self_check"
         )
+        goal_points = self._project_goal_knowledge_points(state)
+        generation_version = self.ASSESSMENT_GENERATION_VERSION
+        prebuilds = {
+            str(item.get("knowledge_point_id") or ""): item
+            for item in self.store.list_assessment_prebuilds(
+                project_id, student_id, practice_type, generation_version
+            )
+        }
+        if practice_type == "provisional_self_check":
+            if not prebuilds and self.gateway.mode == "remote":
+                self._queue_project_assessment_generation(project_id, student_id)
+                prebuilds = {
+                    str(item.get("knowledge_point_id") or ""): item
+                    for item in self.store.list_assessment_prebuilds(
+                        project_id, student_id, practice_type, generation_version
+                    )
+                }
+            expected_count = len(goal_points)
+            ready_count = sum(
+                1 for item in prebuilds.values()
+                if str(item.get("status") or "") == "ready"
+            )
+            failed_count = sum(
+                1 for item in prebuilds.values()
+                if str(item.get("status") or "") == "failed"
+            )
+            active_count = sum(
+                1 for item in prebuilds.values()
+                if str(item.get("status") or "") in {"queued", "generating"}
+            )
+            if expected_count and ready_count >= expected_count:
+                generation_status = "ready"
+            elif active_count:
+                generation_status = "generating"
+            elif failed_count:
+                generation_status = "failed"
+            else:
+                generation_status = "not_started"
+        else:
+            generation_status = "ready"
+            expected_count = ready_count = len(goal_points)
+            failed_count = active_count = 0
+        lesson_statuses = self.store.list_project_lesson_statuses(project_id, student_id)
+        lesson_ready = sum(
+            1 for point in goal_points
+            if str(as_dict(lesson_statuses.get(str(point.get("knowledge_point_id") or ""))).get("status") or "") == "ready"
+        )
+        lesson_failed = sum(
+            1 for point in goal_points
+            if str(as_dict(lesson_statuses.get(str(point.get("knowledge_point_id") or ""))).get("status") or "") == "failed"
+        )
         practice_sheets = []
-        for point in self._project_goal_knowledge_points(state):
+        for point in goal_points:
             point_id = str(point.get("knowledge_point_id") or "")
             point_runs = [
                 run
@@ -9502,7 +9968,13 @@ class LearningApplication:
             question_count = (
                 min(3, len(reviewed_questions))
                 if practice_type == "self_check"
-                else None
+                else len(
+                    as_list(as_dict(prebuilds.get(point_id)).get("questions"))
+                ) if str(as_dict(prebuilds.get(point_id)).get("status") or "") == "ready" else 0
+            )
+            generation_point_status = (
+                "ready" if practice_type == "self_check"
+                else str(as_dict(prebuilds.get(point_id)).get("status") or "queued")
             )
             latest = point_runs[0] if point_runs else {}
             latest_result = as_dict(latest.get("result"))
@@ -9517,7 +9989,11 @@ class LearningApplication:
                     "question_count": question_count,
                     "available": (
                         planning_ready
-                        and (practice_type == "provisional_self_check" or bool(question_count))
+                        and (
+                            bool(question_count)
+                            if practice_type == "self_check"
+                            else generation_point_status == "ready" and bool(question_count)
+                        )
                     ),
                     "attempt_count": len(point_runs),
                     "last_result": (
@@ -9533,8 +10009,30 @@ class LearningApplication:
                         if practice_type == "self_check" and bool(question_count)
                         else "ai_generated_unreviewed"
                     ),
+                    "generation_status": generation_point_status,
                 }
             )
+        assessment_generation = {
+            "status": generation_status,
+            "total": expected_count,
+            "ready": ready_count,
+            "failed": failed_count,
+            "generating": active_count,
+            "message": (
+                "适合你的学习路径、知识点讲解和题目已经生成完毕"
+                if generation_status == "ready"
+                else "部分题目生成失败，系统将在后台重试"
+                if generation_status == "failed"
+                else "当前正在生成适合你的学习路径、知识点讲解和题目"
+            ),
+        }
+        content_status = (
+            "ready"
+            if generation_status == "ready" and lesson_ready >= len(goal_points)
+            else "failed"
+            if generation_status == "failed" or lesson_failed
+            else "generating"
+        )
         return {
             "status": "ok",
             "project_id": project_id,
@@ -9558,8 +10056,103 @@ class LearningApplication:
             "catalog": catalog,
             "practice_sheets": practice_sheets,
             "goal_knowledge_point_count": len(practice_sheets),
+            "assessment_generation": assessment_generation,
+            "content_generation": {
+                "status": content_status,
+                "lesson_total": len(goal_points),
+                "lesson_ready": lesson_ready,
+                "lesson_failed": lesson_failed,
+                "assessment": assessment_generation,
+            },
             "history": history,
         }
+
+    def _queue_project_assessment_generation(
+        self,
+        project_id: str,
+        student_id: str,
+        *,
+        background: bool = True,
+    ) -> bool:
+        with self._assessment_generation_lock:
+            if project_id in self._assessment_generation_projects:
+                return False
+            self._assessment_generation_projects.add(project_id)
+
+        def generate_point(
+            project_state: dict[str, Any], knowledge_point_id: str
+        ) -> None:
+            assessment_type = "provisional_self_check"
+            version = self.ASSESSMENT_GENERATION_VERSION
+            cached = self.store.get_assessment_prebuild(
+                project_id, student_id, knowledge_point_id, assessment_type, version
+            )
+            if cached and str(cached.get("status") or "") == "ready":
+                return
+            self.store.set_assessment_prebuild_status(
+                project_id, student_id, knowledge_point_id, assessment_type, version,
+                "generating",
+            )
+            try:
+                questions, provider, blueprint = self._provisional_assessment_questions(
+                    student_id,
+                    project_id,
+                    project_state,
+                    knowledge_point_id,
+                    self.PROVISIONAL_QUESTION_TYPES,
+                )
+                self.store.set_assessment_prebuild_status(
+                    project_id, student_id, knowledge_point_id, assessment_type, version,
+                    "ready", questions=questions, provider=provider, blueprint=blueprint,
+                )
+            except Exception as error:
+                self.store.set_assessment_prebuild_status(
+                    project_id, student_id, knowledge_point_id, assessment_type, version,
+                    "failed", error_message=str(error),
+                )
+
+        def generate() -> None:
+            try:
+                project = self.store.get_project(project_id)
+                if not project or str(project.get("student_id") or "") != student_id:
+                    return
+                state = as_dict(project.get("state"))
+                if str(state.get("assessment_state") or "ready") == "ready":
+                    return
+                point_ids = [
+                    str(item.get("knowledge_point_id") or "").strip()
+                    for item in self._project_goal_knowledge_points(state)
+                    if str(item.get("knowledge_point_id") or "").strip()
+                ]
+                self.store.initialize_assessment_prebuilds(
+                    project_id, student_id, point_ids,
+                    "provisional_self_check", self.ASSESSMENT_GENERATION_VERSION,
+                )
+                workers = min(2, len(point_ids))
+                if workers:
+                    with ThreadPoolExecutor(
+                        max_workers=workers,
+                        thread_name_prefix=f"assessment-prebuild-{project_id}",
+                    ) as executor:
+                        futures = [
+                            executor.submit(generate_point, state, point_id)
+                            for point_id in point_ids
+                        ]
+                        for future in as_completed(futures):
+                            future.result()
+            finally:
+                with self._assessment_generation_lock:
+                    self._assessment_generation_projects.discard(project_id)
+
+        if background:
+            threading.Thread(
+                target=generate,
+                name=f"assessment-prebuild-manager-{project_id}",
+                daemon=True,
+            ).start()
+        else:
+            generate()
+        return True
 
     def project_assessment_evidence(self, incoming: dict[str, Any]) -> dict[str, Any]:
         student_id = str(incoming.get("student_id") or "").strip()
@@ -9582,7 +10175,7 @@ class LearningApplication:
         *,
         background: bool = True,
     ) -> bool:
-        """Start pre-generation after the path is persisted; never wait for a click."""
+        """Pre-generate only after a valid lesson-personalization basis exists."""
         with self._lesson_generation_lock:
             if project_id in self._lesson_generation_projects:
                 return False
@@ -9594,6 +10187,8 @@ class LearningApplication:
                 if not project or str(project.get("student_id") or "") != student_id:
                     return
                 state = as_dict(project.get("state"))
+                if not self._lesson_generation_basis(state):
+                    return
                 items = [
                     dict(item)
                     for item in as_list(
@@ -9654,6 +10249,299 @@ class LearningApplication:
             generate()
         return True
 
+    @staticmethod
+    def _lesson_generation_basis(state: dict[str, Any]) -> str:
+        report = as_dict(state.get("initial_knowledge_self_report"))
+        if str(report.get("self_reported_level") or "") == "zero_foundation":
+            return "zero_foundation"
+        baseline = as_dict(state.get("baseline_profile"))
+        if (
+            str(state.get("initial_assessment_state") or "") == "completed"
+            and str(baseline.get("status") or "") == "assessed"
+        ):
+            return "initial_assessment"
+        return ""
+
+    @staticmethod
+    def _lesson_initial_assessment_context(
+        state: dict[str, Any], target: dict[str, Any]
+    ) -> dict[str, Any]:
+        """Build the only learner-evidence contract available to lesson generation."""
+        knowledge_point_id = str(target.get("knowledge_point_id") or "")
+        knowledge_point_name = str(
+            target.get("knowledge_point_name") or knowledge_point_id
+        )
+        basis = LearningApplication._lesson_generation_basis(state)
+        if basis == "zero_foundation":
+            return {
+                "basis": "zero_foundation_baseline",
+                "knowledge_point_id": knowledge_point_id,
+                "knowledge_point_name": knowledge_point_name,
+                "coverage_status": "not_assessed",
+                "evidence": {
+                    "evidence_status": "unassessed",
+                    "mastery": None,
+                    "confidence": None,
+                    "source_event_ids": [],
+                },
+                "performance": {
+                    "correct_count": 0,
+                    "incorrect_count": 0,
+                    "skipped_count": 0,
+                },
+                "presentation_requirements": [
+                    "从前置概念开始讲解，不假设学习者已掌握当前知识点。",
+                    "明确这是零基础基线讲解，不是正式初次测评结论。",
+                ],
+            }
+
+        baseline = as_dict(state.get("baseline_profile"))
+        baseline_point = next(
+            (
+                item
+                for item in as_list(baseline.get("knowledge_points"))
+                if isinstance(item, dict)
+                and str(item.get("knowledge_point_id") or "") == knowledge_point_id
+            ),
+            {},
+        )
+        diagnosis = as_dict(state.get("diagnosis_session"))
+        results = [
+            item
+            for item in as_list(diagnosis.get("results"))
+            if isinstance(item, dict)
+            and str(item.get("knowledge_point_id") or "") == knowledge_point_id
+        ]
+        correct_count = sum(1 for item in results if item.get("correct"))
+        skipped_count = sum(1 for item in results if item.get("skipped"))
+        incorrect_count = len(results) - correct_count - skipped_count
+        evidence_status = str(
+            baseline_point.get("evidence_status") or "unassessed"
+        )
+        weak_point = next(
+            (
+                item
+                for item in as_list(state.get("weak_points"))
+                if isinstance(item, dict)
+                and str(item.get("knowledge_point_id") or "") == knowledge_point_id
+            ),
+            {},
+        )
+        if not results:
+            presentation_requirements = [
+                "初次测评未覆盖当前知识点，使用中性讲解，不推断薄弱或已掌握。"
+            ]
+        elif evidence_status in {"needs_support", "developing"}:
+            presentation_requirements = [
+                "围绕初次测评暴露的薄弱点解释根因、边界和常见误区。",
+                "使用分步案例和可验证的小练习，不把错误直接表述为最终能力结论。",
+            ]
+        else:
+            presentation_requirements = [
+                "压缩已验证的基础内容，重点说明适用边界与迁移应用。"
+            ]
+        return {
+            "basis": "formal_initial_assessment",
+            "assessment_id": str(
+                baseline.get("assessment_id") or diagnosis.get("assessment_id") or ""
+            ),
+            "knowledge_point_id": knowledge_point_id,
+            "knowledge_point_name": knowledge_point_name,
+            "coverage_status": "assessed" if results else "not_assessed",
+            "evidence": {
+                "evidence_status": evidence_status,
+                "mastery": baseline_point.get("mastery"),
+                "confidence": baseline_point.get("confidence"),
+                "source_event_ids": list(
+                    as_list(baseline_point.get("source_event_ids"))
+                ),
+            },
+            "performance": {
+                "correct_count": correct_count,
+                "incorrect_count": incorrect_count,
+                "skipped_count": skipped_count,
+            },
+            "error_focus": {
+                key: weak_point[key]
+                for key in (
+                    "error_id",
+                    "error_type",
+                    "misconception_tag",
+                    "root_cause",
+                    "error_count",
+                )
+                if weak_point.get(key) not in (None, "")
+            },
+            "presentation_requirements": presentation_requirements,
+        }
+
+    def _retrieve_lesson_web_evidence(
+        self, project: dict[str, Any], target: dict[str, Any]
+    ) -> dict[str, Any]:
+        if self.gateway.mode != "remote" or not self.knowledge_evidence_retriever:
+            return {"status": "not_requested", "evidence": []}
+        try:
+            planned_queries: list[str] = []
+            if self.settings.knowledge_planning_flow_id:
+                planning = self.gateway.invoke_knowledge_planning_workflow(
+                    {
+                        "student_id": str(project.get("student_id") or ""),
+                        "knowledge_point": {
+                            "knowledge_point_id": str(target.get("knowledge_point_id") or ""),
+                            "knowledge_point_name": str(target.get("knowledge_point_name") or ""),
+                        },
+                        "learning_goal": str(project.get("goal_name") or ""),
+                        "allowed_source_domains": sorted(
+                            self.knowledge_evidence_retriever.SOURCE_DOMAINS
+                        ),
+                    }
+                )
+                planned_queries = [
+                    str(query).strip()
+                    for query in as_list(planning.get("queries"))
+                    if str(query).strip()
+                ][:4]
+            return self.knowledge_evidence_retriever.retrieve(
+                str(target.get("knowledge_point_name") or ""),
+                str(project.get("goal_name") or ""),
+                queries=planned_queries or None,
+            )
+        except Exception as error:
+            return {
+                "status": "knowledge_unavailable",
+                "evidence": [],
+                "completeness": {
+                    "status": "insufficient",
+                    "reason": f"联网证据检索失败：{str(error)[:160]}",
+                },
+            }
+
+    @staticmethod
+    def _web_evidence_text(evidence_pack: dict[str, Any]) -> str:
+        entries = [
+            item for item in as_list(evidence_pack.get("evidence"))
+            if isinstance(item, dict)
+        ]
+        return "\n\n".join(
+            "\n".join(
+                part for part in (
+                    f"【{item.get('title')}】",
+                    str(item.get("quote") or ""),
+                    "来源："
+                    + str(item.get("source") or "")
+                    + "；URL："
+                    + str(item.get("url") or ""),
+                ) if part
+            )
+            for item in entries
+        )
+
+    @staticmethod
+    def _web_evidence_sources(evidence_pack: dict[str, Any]) -> list[dict[str, Any]]:
+        return [
+            {
+                "type": str(item.get("source_type") or "web"),
+                "title": str(item.get("title") or item.get("source") or "联网资料"),
+                "source": str(item.get("source") or "联网检索"),
+                "url": str(item.get("url") or ""),
+                "quote": str(item.get("quote") or "")[:280],
+                "verification_state": str(
+                    item.get("verification_state") or "authoritative"
+                ),
+            }
+            for item in as_list(evidence_pack.get("evidence"))
+            if isinstance(item, dict)
+        ]
+
+    def _knowledge_unavailable_lesson(
+        self,
+        target: dict[str, Any],
+        evidence_pack: dict[str, Any],
+        message: str,
+    ) -> dict[str, Any]:
+        return {
+            "status": "ok",
+            "knowledge_gap": True,
+            "source_status": "knowledge_unavailable",
+            "lesson_title": str(
+                target.get("knowledge_point_name") or target.get("knowledge_point_id") or "当前知识点"
+            ),
+            "lesson_objective": "等待补充可核验的学习资料。",
+            "content_blocks": [
+                {
+                    "type": "notice",
+                    "title": "资料不足，暂不生成讲解",
+                    "content": message,
+                    "source": "联网资料完整性校验",
+                }
+            ],
+            "sources": self._web_evidence_sources(evidence_pack),
+            "web_evidence_pack": evidence_pack,
+        }
+
+    def _audit_lesson_evidence(
+        self, result: dict[str, Any], evidence_pack: dict[str, Any]
+    ) -> dict[str, Any]:
+        evidence = [
+            item for item in as_list(evidence_pack.get("evidence"))
+            if isinstance(item, dict)
+        ]
+        references = [
+            str(value).casefold()
+            for item in evidence
+            for value in (item.get("title"), item.get("source"), item.get("url"))
+            if str(value or "").strip()
+        ]
+        covered: set[str] = set()
+        untraced_blocks = []
+        for block in as_list(result.get("content_blocks")):
+            if not isinstance(block, dict):
+                continue
+            block_type = str(block.get("type") or "")
+            if block_type == "concept":
+                covered.update({"definition_and_boundary", "core_principles"})
+            elif block_type in {"steps", "example"}:
+                covered.add("example_or_steps")
+            elif block_type in {"workplace", "check"}:
+                covered.add("application_or_verification")
+            if block_type == "notice":
+                continue
+            source = str(block.get("source") or "").casefold()
+            if not source or not any(reference in source for reference in references):
+                untraced_blocks.append(block_type or "unknown")
+        required = set(as_list(evidence_pack.get("required_sections")))
+        missing_sections = sorted(required - covered)
+        passed = bool(evidence) and not missing_sections and not untraced_blocks
+        audit = {
+            "status": "passed" if passed else "rejected",
+            "missing_sections": missing_sections,
+            "untraced_block_types": untraced_blocks,
+            "evidence_count": len(evidence),
+        }
+        if (
+            getattr(getattr(self, "gateway", None), "mode", "mock") != "remote"
+            or not str(getattr(getattr(self, "settings", None), "knowledge_audit_flow_id", ""))
+        ):
+            return audit
+        try:
+            remote = self.gateway.invoke_knowledge_audit_workflow(
+                {
+                    "student_id": "lesson-audit",
+                    "evidence": evidence,
+                    "content_blocks": as_list(result.get("content_blocks")),
+                    "local_audit": audit,
+                }
+            )
+        except Exception as error:
+            return {**audit, "status": "rejected", "remote_error": str(error)[:160]}
+        decision = str(remote.get("decision") or "").lower()
+        return {
+            **audit,
+            "remote_workflow": "knowledge_audit",
+            "remote_decision": decision,
+            "status": "passed" if passed and decision == "approved" else "rejected",
+        }
+
     def _generate_project_lesson(
         self,
         project: dict[str, Any],
@@ -9671,6 +10559,9 @@ class LearningApplication:
             "example_driven": "show_example",
             "step_by_step": "show_steps",
         }.get(explanation_style, "initialize_learning")
+        initial_assessment_context = self._lesson_initial_assessment_context(
+            state, target
+        )
         context = {
             "student_id": str(project.get("student_id") or ""),
             "session_id": f"PROJECT-{project_id}",
@@ -9685,8 +10576,25 @@ class LearningApplication:
             "event_type": event_type,
             "goal_driven": True,
             "learner_preferences": learner_preferences,
-            "learner_self_reports": as_list(state.get("learner_self_reports"))[-5:],
+            "initial_assessment_context": initial_assessment_context,
         }
+        web_evidence_pack = self._retrieve_lesson_web_evidence(project, target)
+        if self.gateway.mode == "remote":
+            if str(web_evidence_pack.get("status") or "") != "ready":
+                result = self._knowledge_unavailable_lesson(
+                    target,
+                    web_evidence_pack,
+                    "未检索到能够覆盖当前章节的权威网页正文；系统不会用无来源内容替代。",
+                )
+                result["project_id"] = project_id
+                result["knowledge_point_id"] = knowledge_point_id
+                result["initial_assessment_context"] = initial_assessment_context
+                result["generated_at"] = utc_now()
+                result["generated_with_path"] = True
+                self._stabilize_lesson_document(result, project_id, knowledge_point_id)
+                return result
+            context["web_evidence_pack"] = web_evidence_pack
+            context["kb_text"] = self._web_evidence_text(web_evidence_pack)
         # Video discovery belongs to content production, not to a learner preference.
         self._attach_video_search("learning", context)
         if str(state.get("support_level") or "") == "generated_scaffold":
@@ -9704,17 +10612,38 @@ class LearningApplication:
                 ):
                     raise GatewayError("学习工作流未返回可展示的讲解内容")
             except Exception:
-                result = self.gateway._mock_learning(workflow_payload)
-                result["fallback_used"] = True
-                result["fallback_reason"] = "远程学习工作流暂时不可用"
-                result["source_status"] = "verified_local_fallback"
-                result["source_notice"] = (
-                    "本次已自动改用本地课程知识库组织讲解；联网工作流恢复后会优先使用远程生成。"
-                )
+                if self.gateway.mode == "remote":
+                    result = self._knowledge_unavailable_lesson(
+                        target,
+                        web_evidence_pack,
+                        "联网资料已检索到，但讲解工作流暂时不可用；系统不会用本地模板冒充已生成讲解。",
+                    )
+                else:
+                    result = self.gateway._mock_learning(workflow_payload)
+                    result["fallback_used"] = True
+                    result["fallback_reason"] = "远程学习工作流暂时不可用"
+                    result["source_status"] = "verified_local_fallback"
+                    result["source_notice"] = (
+                        "本次已自动改用本地课程知识库组织讲解；联网工作流恢复后会优先使用远程生成。"
+                    )
             self._merge_web_sources(result)
             self._merge_video_resources(result, context)
+            if self.gateway.mode == "remote":
+                evidence_audit = self._audit_lesson_evidence(result, web_evidence_pack)
+                result["evidence_audit"] = evidence_audit
+                if evidence_audit["status"] != "passed":
+                    result = self._knowledge_unavailable_lesson(
+                        target,
+                        web_evidence_pack,
+                        "讲解未通过来源追溯或必备知识块校验，系统不会展示未经核验的正文。",
+                    )
+                    result["evidence_audit"] = evidence_audit
         result["project_id"] = project_id
         result["knowledge_point_id"] = knowledge_point_id
+        result["initial_assessment_context"] = initial_assessment_context
+        if self.gateway.mode == "remote":
+            result.setdefault("web_evidence_pack", web_evidence_pack)
+            result.setdefault("sources", self._web_evidence_sources(web_evidence_pack))
         result["generated_at"] = utc_now()
         result["generated_with_path"] = True
         self._stabilize_lesson_document(result, project_id, knowledge_point_id)
@@ -9775,6 +10704,23 @@ class LearningApplication:
                         lesson=result,
                     )
                 return result
+        basis = self._lesson_generation_basis(state)
+        if not basis:
+            initial_state = str(
+                state.get("initial_assessment_state") or "awaiting_intake"
+            )
+            return {
+                "status": "preparing",
+                "project_id": project_id,
+                "knowledge_point_id": knowledge_point_id,
+                "generation_status": "awaiting_initial_assessment",
+                "message": (
+                    "请先完成正式初次测评，系统会依据测评结果生成对应章节讲解。"
+                    if initial_state != "in_progress"
+                    else "初次测评正在进行中，完成后系统会依据结果生成章节讲解。"
+                ),
+                "retry_after_ms": 0,
+            }
         status = str(as_dict(cached).get("status") or "queued")
         return {
             "status": "preparing",
@@ -10911,7 +11857,7 @@ class LearningApplication:
         resolved = self._resolve_reference(message, history)
         if selected_text:
             resolved = f"{message}\n选中讲解片段：{selected_text}"
-        if use_learning_materials:
+        if use_learning_materials and self.gateway.mode != "remote":
             material_answer = self._material_knowledge_answer(resolved, session_id)
             if bool(incoming.get("persist_history", True)):
                 self._save_chat_history(
@@ -11060,6 +12006,7 @@ class LearningApplication:
                     "student_id": student_id,
                     "student_profile": as_dict(self.domain.profile(student_id).get("profile")),
                     "assistant_mode": assistant_mode,
+                    "use_learning_materials": use_learning_materials,
                     "source_kind": "web" if web_answer else ("knowledge_base" if items else "none"),
                     "kb_text": source_context + project_context_text,
                     "history_memory": context_memory,
@@ -11730,8 +12677,13 @@ class LearningApplication:
         completed = sum(1 for item in items if str(item.get("status", "")) == "completed")
 
         activity = self.domain.explanation_sessions_for(student_id)
+        attempt_activity = [
+            entry
+            for entry in self._portrait_evidence(student_id, limit=1000)
+            if str(entry.get("type") or "") == "作答"
+        ]
         day_counter: dict[str, int] = {}
-        for entry in activity:
+        for entry in [*activity, *attempt_activity]:
             day = str(entry.get("created_at") or "")[:10]
             if day:
                 day_counter[day] = day_counter.get(day, 0) + 1
@@ -11977,7 +12929,10 @@ class LearningApplication:
                     str(item.get("knowledge_point_id") or f"KN-{index}"), {}
                 ).get("last_at")
                 or None,
-                "is_estimated": item.get("mastery") is not None,
+                "is_estimated": bool(
+                    item.get("mastery") is not None
+                    and not item.get("source_event_ids")
+                ),
                 "evidence_status": str(item.get("evidence_status") or "unassessed"),
                 "source_event_ids": as_list(item.get("source_event_ids")),
             }
@@ -12168,7 +13123,7 @@ class LearningApplication:
                     "迁移能力": 85,
                 },
             },
-            "updated_at": state.get("updated_at") or utc_now(),
+            "updated_at": utc_now(),
             "data_evidence": self._portrait_evidence(student_id),
             # ---- LearnerState v1 对齐字段（如实缺省，不虚构） ----
             "schema_version": "1.0",

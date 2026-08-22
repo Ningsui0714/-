@@ -1,0 +1,23 @@
+{
+  "student_id": "lesson-audit",
+  "local_audit": {
+    "status": "passed",
+    "missing_sections": [],
+    "untraced_block_types": []
+  },
+  "evidence": [
+    {
+      "title": "Java Platform SE Documentation",
+      "source": "Oracle 官方文档",
+      "url": "https://docs.oracle.com/javase/",
+      "quote": "Encapsulation controls access to an object's state through its public operations."
+    }
+  ],
+  "content_blocks": [
+    {
+      "type": "concept",
+      "content": "封装通过公开操作控制对象状态访问。",
+      "source": "Java Platform SE Documentation · https://docs.oracle.com/javase/"
+    }
+  ]
+}

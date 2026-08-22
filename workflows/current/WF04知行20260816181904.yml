@@ -1,0 +1,2076 @@
+flowMeta:
+  name: WF04知行20260816181904
+  description: 以知行课径后端为主系统，提供六题型个性化出题、开放式答案评价和自适应训练建议；单JSON入口、无本地状态写入。
+  avatarIcon: https://openres.xfyun.cn/xfyundoc/2026-01-13/e70975ea-aef6-4c03-9307-0ac7a83d94e0/1768290625545/17%402x.png
+  avatarColor: '#E8F3FF'
+  advancedConfig: '{"needGuide":false}'
+  category: 17
+  dslVersion: v1
+flowData:
+  nodes:
+  - id: node-start::4b3a7b46-1c88-55e6-94d5-b32e8f94da7d
+    dragging: false
+    selected: false
+    width: 255
+    height: 73
+    position:
+      x: -1900
+      y: 0
+    positionAbsolute:
+      x: -1900
+      y: 0
+    type: 开始节点
+    data:
+      allowInputReference: false
+      allowOutputReference: true
+      label: 开始
+      status: ''
+      nodeMeta:
+        aliasName: 开始节点
+        nodeType: 基础节点
+      inputs: [
+        ]
+      outputs:
+      - id: 385fd8c8-0196-54ba-9328-d6a8512eb401
+        name: AGENT_USER_INPUT
+        nameErrMsg: ''
+        schema:
+          type: string
+          default: '{}'
+        required: true
+        deleteDisabled: true
+      nodeParam: {
+        }
+      icon: https://oss-beijing-m8.openstorage.cn/pro-bucket/sparkBot/common/workflow/icon/start-node-icon.png
+      description: 接收知行课径后端序列化后的训练评估请求 JSON。
+      updatable: false
+  - id: ifly-code::4c67ca6d-807f-5600-a149-caf9fdd3f3fe
+    dragging: false
+    selected: false
+    width: 361
+    height: 99
+    position:
+      x: -1450
+      y: 0
+    positionAbsolute:
+      x: -1450
+      y: 0
+    type: 代码
+    data:
+      allowInputReference: true
+      allowOutputReference: true
+      label: 解析并校验知行课径请求
+      labelEdit: false
+      references: [
+        ]
+      status: ''
+      nodeMeta:
+        aliasName: 代码
+        nodeType: 工具
+      inputs:
+      - id: 1392cfaa-df26-5f18-ac4d-9714c08750bd
+        name: AGENT_USER_INPUT
+        nameErrMsg: ''
+        schema:
+          type: string
+          value:
+            type: ref
+            content:
+              name: AGENT_USER_INPUT
+              id: 385fd8c8-0196-54ba-9328-d6a8512eb401
+              nodeId: node-start::4b3a7b46-1c88-55e6-94d5-b32e8f94da7d
+            contentErrMsg: ''
+        fileType: ''
+      outputs:
+      - id: c5a904e6-6561-5e7f-a10b-b490aaca166c
+        name: route
+        nameErrMsg: ''
+        schema:
+          type: string
+          default: ''
+        required: false
+      - id: 827e4165-317e-5da4-bab4-d931a663cf71
+        name: request_json
+        nameErrMsg: ''
+        schema:
+          type: string
+          default: ''
+        required: false
+      - id: 3ba6aa61-7e57-5b7b-87c8-2dfe93d23edf
+        name: prompt_json
+        nameErrMsg: ''
+        schema:
+          type: string
+          default: ''
+        required: false
+      - id: 6182a936-e6b2-5402-9031-70d02bd9092c
+        name: error_result_json
+        nameErrMsg: ''
+        schema:
+          type: string
+          default: ''
+        required: false
+      nodeParam:
+        uid: ''
+        code: |-
+          import json
+
+          REQUEST_SCHEMA = "ZHIXING_WF04_REQUEST.v1"
+          RESULT_SCHEMA = "ZHIXING_WF04_RESULT.v1"
+          SUPPORTED_ACTIONS = {
+              "generate_question",
+              "evaluate_answer",
+              "recommend_next_practice",
+          }
+          QUESTION_TYPES = {
+              "choice",
+              "multiple_choice",
+              "judgment",
+              "fill_blank",
+              "short_answer",
+              "practical",
+          }
+
+
+          def _parse_object(value):
+              current = value
+              for _ in range(4):
+                  if isinstance(current, dict):
+                      if "AGENT_USER_INPUT" in current and len(current) <= 3:
+                          current = current.get("AGENT_USER_INPUT")
+                          continue
+                      if "input" in current and len(current) <= 3:
+                          current = current.get("input")
+                          continue
+                      return current
+                  text = str(current or "").strip()
+                  if not text:
+                      return {}
+                  current = json.loads(text, strict=False)
+              return current if isinstance(current, dict) else {}
+
+
+          def _error(code, message, data=None):
+              data = data if isinstance(data, dict) else {}
+              return {
+                  "schema_version": RESULT_SCHEMA,
+                  "workflow_mode": "wf04_training_evaluation",
+                  "status": "error",
+                  "action": str(data.get("action") or ""),
+                  "request_id": str(data.get("request_id") or ""),
+                  "student_id": str(data.get("student_id") or ""),
+                  "error": {"code": code, "message": message},
+                  "host_write_allowed": False,
+              }
+
+
+          def _text(value):
+              return str(value or "").strip()
+
+
+          def _validate_common(data):
+              errors = []
+              if _text(data.get("schema_version")) != REQUEST_SCHEMA:
+                  errors.append("schema_version 必须为 " + REQUEST_SCHEMA)
+              if _text(data.get("action")) not in SUPPORTED_ACTIONS:
+                  errors.append("action 不受支持")
+              for field in ("request_id", "student_id", "project_id", "task_instance_id"):
+                  if not _text(data.get(field)):
+                      errors.append(field + " 不能为空")
+              return errors
+
+
+          def _validate_generate(data):
+              errors = []
+              knowledge = data.get("knowledge_point")
+              if not isinstance(knowledge, dict):
+                  return ["knowledge_point 必须是对象"]
+              if not _text(knowledge.get("knowledge_point_id")):
+                  errors.append("knowledge_point.knowledge_point_id 不能为空")
+              if not _text(knowledge.get("knowledge_point_name")):
+                  errors.append("knowledge_point.knowledge_point_name 不能为空")
+              difficulty = _text(data.get("difficulty") or "medium").lower()
+              if difficulty not in {"easy", "medium", "hard", "challenge"}:
+                  errors.append("difficulty 必须为 easy、medium、hard 或 challenge")
+              requested_question_type = _text(
+                  data.get("requested_question_type") or "short_answer"
+              ).lower()
+              if requested_question_type not in QUESTION_TYPES:
+                  errors.append(
+                      "requested_question_type 必须为 choice、multiple_choice、judgment、"
+                      "fill_blank、short_answer 或 practical"
+                  )
+              else:
+                  # 缺省请求按简答题处理，确保旧调用仍可得到稳定、可校验的结果。
+                  data["requested_question_type"] = requested_question_type
+              role = _text(data.get("question_role") or "recommended")
+              if role not in {"recommended", "retry_original", "variant", "challenge", "direct_validation"}:
+                  errors.append("question_role 不受支持")
+              if role == "variant" and not _text(data.get("source_question_instance_id")):
+                  errors.append("生成变式题时 source_question_instance_id 不能为空")
+              contract = data.get("task_contract")
+              if not isinstance(contract, dict):
+                  errors.append("task_contract 必须是对象")
+                  contract = {}
+              assessment_mode = _text(contract.get("assessment_mode") or "practice")
+              if assessment_mode not in {"formal", "practice", "provisional"}:
+                  errors.append("task_contract.assessment_mode 不受支持")
+              if assessment_mode == "formal":
+                  if not isinstance(contract.get("rubric"), list) or not contract.get("rubric"):
+                      errors.append("正式评价必须提供非空 rubric")
+                  rules = contract.get("validation_rules")
+                  if not isinstance(rules, dict):
+                      errors.append("正式评价必须提供 validation_rules")
+              context = data.get("knowledge_context")
+              if not isinstance(context, dict):
+                  errors.append("knowledge_context 必须是对象")
+              elif assessment_mode == "formal" and (
+                  not isinstance(context.get("source_refs"), list) or not context.get("source_refs")
+              ):
+                  errors.append("正式出题必须提供非空 knowledge_context.source_refs")
+              return errors
+
+
+          def _validate_evaluate(data):
+              errors = []
+              for field in ("question_instance_id", "attempt_id"):
+                  if not _text(data.get(field)):
+                      errors.append(field + " 不能为空")
+              question = data.get("question_snapshot")
+              if not isinstance(question, dict):
+                  return errors + ["question_snapshot 必须是对象"]
+              for field in ("knowledge_point_id", "prompt"):
+                  if not _text(question.get(field)):
+                      errors.append("question_snapshot." + field + " 不能为空")
+              attempt = data.get("current_attempt")
+              if not isinstance(attempt, dict):
+                  errors.append("current_attempt 必须是对象")
+              elif not _text(attempt.get("student_answer")):
+                  errors.append("current_attempt.student_answer 不能为空")
+              contract = data.get("task_contract")
+              if contract is not None and not isinstance(contract, dict):
+                  errors.append("task_contract 必须是对象")
+              return errors
+
+
+          def _validate_policy(data):
+              errors = []
+              knowledge = data.get("knowledge_point")
+              if not isinstance(knowledge, dict) or not _text(knowledge.get("knowledge_point_id")):
+                  errors.append("knowledge_point.knowledge_point_id 不能为空")
+              summary = data.get("evidence_summary")
+              if not isinstance(summary, dict):
+                  errors.append("evidence_summary 必须是对象")
+              return errors
+
+
+          def main(AGENT_USER_INPUT):
+              try:
+                  data = _parse_object(AGENT_USER_INPUT)
+              except Exception:
+                  result = _error("E_INPUT_NOT_JSON", "AGENT_USER_INPUT 必须是合法 JSON 对象")
+                  return {
+                      "route": "invalid",
+                      "request_json": "{}",
+                      "prompt_json": "{}",
+                      "error_result_json": json.dumps(result, ensure_ascii=False),
+                  }
+              if not isinstance(data, dict):
+                  data = {}
+              errors = _validate_common(data)
+              action = _text(data.get("action"))
+              if not errors and action == "generate_question":
+                  errors.extend(_validate_generate(data))
+              elif not errors and action == "evaluate_answer":
+                  errors.extend(_validate_evaluate(data))
+              elif not errors and action == "recommend_next_practice":
+                  errors.extend(_validate_policy(data))
+              if errors:
+                  result = _error("E_REQUEST_VALIDATION", "；".join(errors), data)
+                  route = "invalid"
+              else:
+                  result = {}
+                  route = action
+              prompt = {
+                  "request": data,
+                  "contract": {
+                      "request_schema": REQUEST_SCHEMA,
+                      "result_schema": RESULT_SCHEMA,
+                      "host_system_is_source_of_truth": True,
+                      "workflow_must_not_write_mastery_or_database": True,
+                  },
+              }
+              return {
+                  "route": route,
+                  "request_json": json.dumps(data, ensure_ascii=False),
+                  "prompt_json": json.dumps(prompt, ensure_ascii=False),
+                  "error_result_json": json.dumps(result, ensure_ascii=False),
+              }
+        appId: ''
+        codeErrMsg: ''
+      icon: https://oss-beijing-m8.openstorage.cn/SparkBotProd/icon/icon-wrapper-question.svg
+      description: 面向开发者提供代码开发能力，目前仅支持python语言，允许使用该节点已定义的变量作为参数传入，返回语句用于输出函数的结果
+      updatable: false
+  - id: if-else::857f83d4-c542-5461-a9cd-88f2fe9450b1
+    dragging: false
+    selected: false
+    width: 361
+    height: 203
+    position:
+      x: -1000
+      y: 0
+    positionAbsolute:
+      x: -1000
+      y: 0
+    type: 分支器
+    data:
+      allowInputReference: true
+      allowOutputReference: false
+      label: 训练评估能力分流
+      labelEdit: false
+      references: [
+        ]
+      status: ''
+      nodeMeta:
+        aliasName: 分支器
+        nodeType: 分支器
+      inputs:
+      - id: 904d4eee-7f48-5eb0-a7c0-797ca5c662cc
+        name: left_generate_question
+        nameErrMsg: ''
+        schema:
+          type: string
+          value:
+            type: ref
+            content:
+              name: route
+              id: c5a904e6-6561-5e7f-a10b-b490aaca166c
+              nodeId: ifly-code::4c67ca6d-807f-5600-a149-caf9fdd3f3fe
+            contentErrMsg: ''
+        fileType: ''
+      - id: c2644e81-eb59-5183-9c97-4a167cd3b328
+        name: right_generate_question
+        nameErrMsg: ''
+        schema:
+          type: string
+          value:
+            type: literal
+            content: generate_question
+            contentErrMsg: ''
+      - id: 7a5989b3-744d-55dc-94db-ea6becafd021
+        name: left_evaluate_answer
+        nameErrMsg: ''
+        schema:
+          type: string
+          value:
+            type: ref
+            content:
+              name: route
+              id: c5a904e6-6561-5e7f-a10b-b490aaca166c
+              nodeId: ifly-code::4c67ca6d-807f-5600-a149-caf9fdd3f3fe
+            contentErrMsg: ''
+        fileType: ''
+      - id: 7ba79608-dfc9-562e-9d3b-a535c098de89
+        name: right_evaluate_answer
+        nameErrMsg: ''
+        schema:
+          type: string
+          value:
+            type: literal
+            content: evaluate_answer
+            contentErrMsg: ''
+      - id: a4771a89-0862-50b8-8382-b0d57d09b78e
+        name: left_recommend_next_practice
+        nameErrMsg: ''
+        schema:
+          type: string
+          value:
+            type: ref
+            content:
+              name: route
+              id: c5a904e6-6561-5e7f-a10b-b490aaca166c
+              nodeId: ifly-code::4c67ca6d-807f-5600-a149-caf9fdd3f3fe
+            contentErrMsg: ''
+        fileType: ''
+      - id: f6e6482a-98bb-5158-b055-8515c8c31d6e
+        name: right_recommend_next_practice
+        nameErrMsg: ''
+        schema:
+          type: string
+          value:
+            type: literal
+            content: recommend_next_practice
+            contentErrMsg: ''
+      outputs: [
+        ]
+      nodeParam:
+        uid: ''
+        cases:
+        - level: 1
+          logicalOperator: and
+          id: branch_one_of::65bd147e-dcf4-542e-9f0b-92d893a20375
+          conditions:
+          - leftVarIndex: 904d4eee-7f48-5eb0-a7c0-797ca5c662cc
+            rightVarIndex: c2644e81-eb59-5183-9c97-4a167cd3b328
+            compareOperatorErrMsg: ''
+            id: 0b12a092-91f8-5d84-83f4-c6398ae944e1
+            compareOperator: eq
+        - level: 2
+          logicalOperator: and
+          id: branch_one_of::9bee2307-b4f9-5069-90a5-40685575d665
+          conditions:
+          - leftVarIndex: 7a5989b3-744d-55dc-94db-ea6becafd021
+            rightVarIndex: 7ba79608-dfc9-562e-9d3b-a535c098de89
+            compareOperatorErrMsg: ''
+            id: 23c2e008-7529-54f9-bb3d-72b35315b5b3
+            compareOperator: eq
+        - level: 3
+          logicalOperator: and
+          id: branch_one_of::9f98bb2b-2bfd-5335-b1e0-5a74bc6dd35d
+          conditions:
+          - leftVarIndex: a4771a89-0862-50b8-8382-b0d57d09b78e
+            rightVarIndex: f6e6482a-98bb-5158-b055-8515c8c31d6e
+            compareOperatorErrMsg: ''
+            id: f74be3d5-32e8-50db-9350-17aa72c8b62c
+            compareOperator: eq
+        - level: 999
+          logicalOperator: and
+          id: branch_one_of::f1cc8b03-a134-5480-a463-ca243ba00ff7
+          conditions: [
+            ]
+        appId: ''
+      icon: https://oss-beijing-m8.openstorage.cn/SparkBotProd/icon/icon-wrapper-if-else.svg
+      description: 根据设立的条件，判断选择分支走向
+      updatable: false
+  - id: spark-llm::dbb70f28-538b-5aae-9d07-1a3328a7e4aa
+    dragging: false
+    selected: false
+    width: 275
+    height: 123
+    position:
+      x: -500
+      y: -450
+    positionAbsolute:
+      x: -500
+      y: -450
+    type: 大模型
+    data:
+      allowInputReference: true
+      allowOutputReference: true
+      label: 生成个性化题目规格
+      labelEdit: false
+      references: [
+        ]
+      status: ''
+      nodeMeta:
+        aliasName: 大模型
+        nodeType: 基础节点
+      inputs:
+      - id: 9d8052a7-57cd-5f9c-bfe4-550cd4a96e71
+        name: prompt
+        nameErrMsg: ''
+        schema:
+          type: string
+          value:
+            type: ref
+            content:
+              name: prompt_json
+              id: 3ba6aa61-7e57-5b7b-87c8-2dfe93d23edf
+              nodeId: ifly-code::4c67ca6d-807f-5600-a149-caf9fdd3f3fe
+            contentErrMsg: ''
+        fileType: ''
+      outputs:
+      - id: 201e01d5-7452-56d8-aaea-69dfcb3604bc
+        name: model_output
+        nameErrMsg: ''
+        schema:
+          type: string
+          default: ''
+        required: false
+      nodeParam:
+        topK: 4
+        template: '{{prompt}}'
+        modelId: 10000033
+        enableChatHistoryV2:
+          isEnabled: false
+          rounds: 1
+        auditing: default
+        llmId: 10000033
+        url: wss://maas-api.cn-huabei-1.xf-yun.com/v1.1/chat
+        multiMode: false
+        uid: ''
+        modelName: Kimi-K2.5
+        patchId: '0'
+        isThink: false
+        templateErrMsg: ''
+        domain: xopkimik25
+        appId: ''
+        maxTokens: 4096
+        temperature: 0.35
+        systemTemplate: |-
+          你是“知行课径”系统调用的职业教育计算机专业群个性化出题能力，只生成题目规格，不创建数据库ID，不更新学生状态。
+
+          必须遵守：
+          1. 严格依据输入中的 knowledge_point、task_contract、knowledge_context 和 learner_context；禁止默认成 Java、顺序表或其他固定学科。
+          2. 题目主要绑定 knowledge_point.knowledge_point_id，不得自行改绑知识点。
+          3. request.requested_question_type 是硬约束，输出 question_type 必须与它完全一致，不得擅自换题型。
+          4. 如果 question_role=variant，必须明确改变情境、参数、数据或推理路径，不能只改措辞。
+          5. 参考答案、rubric 和硬性要求只供后端与评价流程使用，不得写进题干。
+          6. 不编造来源。source_refs 由后续代码节点使用输入中的可信来源覆盖。
+          7. 只输出一个合法 JSON 对象，不输出 Markdown 代码块、解释前缀或额外文字。
+
+          题型结构硬约束：
+          - choice：options 至少 3 项；选项键使用小写 a/b/c/d；expected_answer 是唯一正确选项键。
+          - multiple_choice：options 至少 3 项；至少 2 个正确选项；expected_answer 使用逗号连接的小写键，例如 a,c。
+          - judgment：options 必须是 {"true":"正确","false":"错误"}；expected_answer 只能是 true 或 false。
+          - fill_blank：options 为 {}；accepted_answers 至少 1 项；expected_answer 是主要标准答案。
+          - short_answer：options 为 {}；reference_answer 非空；rubric 至少 2 项且可独立检查。
+          - practical：options 为 {}；accepted_answers 至少 1 项；grading_mode 固定为 exact_text；rubric 至少 2 项。
+
+          输出格式：
+          {
+            "title": "简短标题",
+            "prompt": "完整题干",
+            "question_type": "choice|multiple_choice|judgment|fill_blank|short_answer|practical",
+            "options": {"a": "仅客观题填写", "b": "仅客观题填写", "c": "仅客观题填写"},
+            "answer_schema": {
+              "type": "text|single_choice|multiple_choice",
+              "label": "作答提示"
+            },
+            "expected_answer": "可供机器判定的核心答案",
+            "accepted_answers": ["仅填空题和实操题填写"],
+            "grading_mode": "仅实操题填写 exact_text",
+            "reference_answer": "完整参考答案",
+            "rubric": [
+              {"criterion_id": "稳定英文或数字ID", "description": "评分项", "max_points": 40, "required": true}
+            ],
+            "hard_required_points": [
+              {"requirement_id": "稳定英文或数字ID", "description": "必须满足的要求"}
+            ],
+            "assessed_concept_ids": ["被考查的细分概念ID"],
+            "variant_changes": ["仅变式题填写实际变化"]
+          }
+        model: spark
+        setAnswerContentErrMsg: ''
+        modelEnabled: true
+        serviceId: xopkimik25
+        respFormat: 0
+        llmIdErrMsg: ''
+      retryConfig:
+        maxRetries: 2
+        shouldRetry: true
+        customOutput: |-
+          {
+            "model_output": ""
+          }
+        errorStrategy: 0
+      icon: https://oss-beijing-m8.openstorage.cn/SparkBotProd/icon/icon-wrapper-model.svg
+      description: 根据输入的提示词，调用选定的大模型，对提示词作出回答
+      updatable: false
+  - id: ifly-code::2e033bf5-7ba9-59bf-9e5d-536463265d5d
+    dragging: false
+    selected: false
+    width: 311
+    height: 99
+    position:
+      x: 0
+      y: -450
+    positionAbsolute:
+      x: 0
+      y: -450
+    type: 代码
+    data:
+      allowInputReference: true
+      allowOutputReference: true
+      label: 校验题目并适配知行课径格式
+      labelEdit: false
+      references: [
+        ]
+      status: ''
+      nodeMeta:
+        aliasName: 代码
+        nodeType: 工具
+      inputs:
+      - id: fdb53e59-0b4e-52f1-b1b3-9a702331b8c1
+        name: model_output
+        nameErrMsg: ''
+        schema:
+          type: string
+          value:
+            type: ref
+            content:
+              name: model_output
+              id: 201e01d5-7452-56d8-aaea-69dfcb3604bc
+              nodeId: spark-llm::dbb70f28-538b-5aae-9d07-1a3328a7e4aa
+            contentErrMsg: ''
+        fileType: ''
+      - id: 63965900-f86b-5cee-9fe5-25c8ef3b1840
+        name: request_json
+        nameErrMsg: ''
+        schema:
+          type: string
+          value:
+            type: ref
+            content:
+              name: request_json
+              id: 827e4165-317e-5da4-bab4-d931a663cf71
+              nodeId: ifly-code::4c67ca6d-807f-5600-a149-caf9fdd3f3fe
+            contentErrMsg: ''
+        fileType: ''
+      outputs:
+      - id: da1cf287-e379-54ad-bd1b-d5821b1f5051
+        name: result_json
+        nameErrMsg: ''
+        schema:
+          type: string
+          default: ''
+        required: false
+      nodeParam:
+        uid: ''
+        code: |-
+          import hashlib
+          import json
+          import re
+
+          RESULT_SCHEMA = "ZHIXING_WF04_RESULT.v1"
+          QUESTION_TYPES = {
+              "choice",
+              "multiple_choice",
+              "judgment",
+              "fill_blank",
+              "short_answer",
+              "practical",
+          }
+
+
+          def _object(value):
+              def decode(candidate, depth=0):
+                  if depth > 5:
+                      return {}
+                  if isinstance(candidate, dict):
+                      expected_keys = {
+                          "title", "prompt", "question_type", "criterion_results",
+                          "schema_version", "request_id", "action",
+                      }
+                      if expected_keys.intersection(candidate):
+                          return candidate
+                      for key in ("content", "output", "result", "data", "text", "answer"):
+                          if key in candidate:
+                              nested = decode(candidate.get(key), depth + 1)
+                              if nested:
+                                  return nested
+                      return candidate
+                  if isinstance(candidate, list) and len(candidate) == 1:
+                      return decode(candidate[0], depth + 1)
+                  text = str(candidate or "").lstrip("\ufeff").strip()
+                  if not text:
+                      return {}
+                  try:
+                      parsed = json.loads(text, strict=False)
+                  except Exception:
+                      parsed = None
+                  if parsed is not None:
+                      nested = decode(parsed, depth + 1)
+                      if nested:
+                          return nested
+                  fenced = re.findall(r"```(?:json)?\s*([\s\S]*?)```", text, flags=re.I)
+                  for block in fenced:
+                      nested = decode(block, depth + 1)
+                      if nested:
+                          return nested
+                  in_string = False
+                  escaped = False
+                  level = 0
+                  start = -1
+                  for index, char in enumerate(text):
+                      if in_string:
+                          if escaped:
+                              escaped = False
+                          elif char == "\\":
+                              escaped = True
+                          elif char == '"':
+                              in_string = False
+                          continue
+                      if char == '"':
+                          in_string = True
+                      elif char == "{":
+                          if level == 0:
+                              start = index
+                          level += 1
+                      elif char == "}" and level:
+                          level -= 1
+                          if level == 0 and start >= 0:
+                              try:
+                                  parsed = json.loads(text[start:index + 1], strict=False)
+                              except Exception:
+                                  parsed = None
+                              if parsed is not None:
+                                  nested = decode(parsed, depth + 1)
+                                  if nested:
+                                      return nested
+                              start = -1
+                  return {}
+
+              return decode(value)
+
+
+          def _output_diagnostic(value):
+              text = str(value or "")
+              digest = hashlib.sha256(text.encode("utf-8", errors="replace")).hexdigest()[:12]
+              return "输出类型=" + type(value).__name__ + "，字符数=" + str(len(text)) + "，摘要=" + digest
+
+
+          def _text(value):
+              return str(value or "").strip()
+
+
+          def _list(value):
+              return value if isinstance(value, list) else []
+
+
+          def _normalize_rubric(items):
+              result = []
+              for index, raw in enumerate(_list(items), start=1):
+                  if not isinstance(raw, dict):
+                      continue
+                  description = _text(raw.get("description") or raw.get("criterion"))
+                  if not description:
+                      continue
+                  try:
+                      points = float(raw.get("max_points", raw.get("points", 0)) or 0)
+                  except Exception:
+                      points = 0
+                  if points <= 0:
+                      continue
+                  result.append({
+                      "criterion_id": _text(raw.get("criterion_id") or "C" + str(index)),
+                      "description": description,
+                      "max_points": points,
+                      "required": bool(raw.get("required", False)),
+                  })
+              return result
+
+
+          def _normalize_requirements(items):
+              result = []
+              for index, raw in enumerate(_list(items), start=1):
+                  if isinstance(raw, str):
+                      description = raw.strip()
+                      requirement_id = "R" + str(index)
+                  elif isinstance(raw, dict):
+                      description = _text(raw.get("description") or raw.get("requirement"))
+                      requirement_id = _text(raw.get("requirement_id") or "R" + str(index))
+                  else:
+                      continue
+                  if description:
+                      result.append({"requirement_id": requirement_id, "description": description})
+              return result
+
+
+          def _error(request, code, message):
+              return {
+                  "schema_version": RESULT_SCHEMA,
+                  "workflow_mode": "wf04_training_evaluation",
+                  "status": "error",
+                  "action": "generate_question",
+                  "request_id": _text(request.get("request_id")),
+                  "student_id": _text(request.get("student_id")),
+                  "error": {
+                      "code": code,
+                      "message": message,
+                      "retryable": code in {
+                          "E_MODEL_OUTPUT_INVALID",
+                          "E_MODEL_QUESTION_TYPE_INVALID",
+                          "E_QUESTION_TYPE_MISMATCH",
+                          "E_QUESTION_INCOMPLETE",
+                      },
+                  },
+                  "host_write_allowed": False,
+              }
+
+
+          def main(model_output, request_json):
+              request = _object(request_json)
+              generated = _object(model_output)
+              if not generated:
+                  message = "出题模型未返回可恢复的 JSON 对象；" + _output_diagnostic(model_output)
+                  return {"result_json": json.dumps(_error(request, "E_MODEL_OUTPUT_INVALID", message), ensure_ascii=False)}
+              knowledge = request.get("knowledge_point") if isinstance(request.get("knowledge_point"), dict) else {}
+              kp_id = _text(knowledge.get("knowledge_point_id"))
+              kp_name = _text(knowledge.get("knowledge_point_name"))
+              title = _text(generated.get("title"))
+              prompt = _text(generated.get("prompt"))
+              requested_question_type = _text(
+                  request.get("requested_question_type") or "short_answer"
+              ).lower()
+              generated_question_type = _text(generated.get("question_type")).lower()
+              if requested_question_type not in QUESTION_TYPES:
+                  return {"result_json": json.dumps(_error(
+                      request,
+                      "E_REQUESTED_QUESTION_TYPE_INVALID",
+                      "requested_question_type 不受支持",
+                  ), ensure_ascii=False)}
+              if generated_question_type not in QUESTION_TYPES:
+                  return {"result_json": json.dumps(_error(
+                      request,
+                      "E_MODEL_QUESTION_TYPE_INVALID",
+                      "出题模型返回了协议未定义的 question_type",
+                  ), ensure_ascii=False)}
+              if generated_question_type != requested_question_type:
+                  return {"result_json": json.dumps(_error(
+                      request,
+                      "E_QUESTION_TYPE_MISMATCH",
+                      "出题模型返回的 question_type 与 requested_question_type 不一致",
+                  ), ensure_ascii=False)}
+              question_type = requested_question_type
+              raw_expected = generated.get("expected_answer")
+              if isinstance(raw_expected, (list, tuple)):
+                  raw_expected = ",".join(
+                      _text(item) for item in raw_expected if _text(item)
+                  )
+              expected = _text(raw_expected)
+              reference = _text(generated.get("reference_answer"))
+              if not title or not prompt or not expected or not reference:
+                  result = _error(request, "E_QUESTION_INCOMPLETE", "题目缺少 title、prompt、expected_answer 或 reference_answer")
+                  return {"result_json": json.dumps(result, ensure_ascii=False)}
+              if len(expected) >= 6 and expected in prompt:
+                  result = _error(request, "E_ANSWER_LEAK", "题干包含参考答案内容，已阻断入库")
+                  return {"result_json": json.dumps(result, ensure_ascii=False)}
+              schema = generated.get("answer_schema") if isinstance(generated.get("answer_schema"), dict) else {}
+              raw_options = generated.get("options")
+              if not isinstance(raw_options, dict):
+                  raw_options = schema.get("options") if isinstance(schema.get("options"), dict) else {}
+              options = {
+                  _text(key).lower(): _text(value)
+                  for key, value in raw_options.items()
+                  if _text(key) and _text(value)
+              }
+              accepted_answers = [
+                  _text(item) for item in _list(generated.get("accepted_answers")) if _text(item)
+              ]
+              grading_mode = _text(generated.get("grading_mode"))
+              answer_schema_type = "text"
+              if question_type == "choice":
+                  expected = expected.lower()
+                  if len(options) < 3 or expected not in options:
+                      return {"result_json": json.dumps(_error(
+                          request,
+                          "E_CHOICE_SCHEMA",
+                          "单选题必须至少有三个非重复选项，且 expected_answer 必须是唯一选项键",
+                      ), ensure_ascii=False)}
+                  answer_schema_type = "single_choice"
+              elif question_type == "multiple_choice":
+                  keys = [
+                      item.strip().lower()
+                      for item in expected.replace("，", ",").split(",")
+                      if item.strip()
+                  ]
+                  if len(options) < 3 or len(set(keys)) < 2 or not set(keys).issubset(options):
+                      return {"result_json": json.dumps(_error(
+                          request,
+                          "E_MULTIPLE_CHOICE_SCHEMA",
+                          "多选题必须至少有三个选项、两个正确选项，且答案键必须属于 options",
+                      ), ensure_ascii=False)}
+                  expected = ",".join(dict.fromkeys(keys))
+                  answer_schema_type = "multiple_choice"
+              elif question_type == "judgment":
+                  expected = expected.lower()
+                  if set(options) != {"true", "false"} or expected not in options:
+                      return {"result_json": json.dumps(_error(
+                          request,
+                          "E_JUDGMENT_SCHEMA",
+                          "判断题 options 必须包含 true/false，且 expected_answer 必须是其中之一",
+                      ), ensure_ascii=False)}
+                  answer_schema_type = "single_choice"
+              elif question_type in {"fill_blank", "practical"}:
+                  options = {}
+                  if not accepted_answers:
+                      accepted_answers = [expected]
+                  if not accepted_answers:
+                      return {"result_json": json.dumps(_error(
+                          request,
+                          "E_ACCEPTED_ANSWERS_MISSING",
+                          "填空题或实操题必须提供 accepted_answers",
+                      ), ensure_ascii=False)}
+                  if question_type == "practical":
+                      grading_mode = "exact_text"
+              else:
+                  options = {}
+              answer_schema = {
+                  "type": answer_schema_type,
+                  "label": _text(schema.get("label") or "请输入你的答案"),
+              }
+              if question_type in {"choice", "multiple_choice", "judgment"}:
+                  answer_schema["options"] = options
+              contract = request.get("task_contract") if isinstance(request.get("task_contract"), dict) else {}
+              authoritative_rubric = _normalize_rubric(contract.get("rubric"))
+              rubric = authoritative_rubric or _normalize_rubric(generated.get("rubric"))
+              if not rubric:
+                  rubric = [
+                      {"criterion_id": "C_CONTENT", "description": "答案满足题目核心要求", "max_points": 70.0, "required": True},
+                      {"criterion_id": "C_REASONING", "description": "答案给出可检查的依据或结果", "max_points": 30.0, "required": False},
+                  ]
+              elif question_type in {"short_answer", "practical"} and len(rubric) < 2:
+                  rubric.append({
+                      "criterion_id": "C_SUPPORT",
+                      "description": "答案给出可检查的依据或结果",
+                      "max_points": 1.0,
+                      "required": False,
+                  })
+              requirements = _normalize_requirements(contract.get("hard_required_points"))
+              if not requirements:
+                  requirements = _normalize_requirements(generated.get("hard_required_points"))
+              knowledge_context = request.get("knowledge_context") if isinstance(request.get("knowledge_context"), dict) else {}
+              source_refs = [str(item).strip() for item in _list(knowledge_context.get("source_refs")) if str(item).strip()]
+              role = _text(request.get("question_role") or "recommended")
+              variant_changes = [str(item).strip() for item in _list(generated.get("variant_changes")) if str(item).strip()]
+              if role == "variant" and not variant_changes:
+                  result = _error(request, "E_VARIANT_NOT_CHANGED", "变式题没有声明实际变化，已阻断入库")
+                  return {"result_json": json.dumps(result, ensure_ascii=False)}
+              fingerprint = "|".join([
+                  _text(request.get("request_id")), kp_id, role, prompt,
+              ])
+              template_id = "QSPEC-" + hashlib.sha256(fingerprint.encode("utf-8")).hexdigest()[:20].upper()
+              rules = contract.get("validation_rules") if isinstance(contract.get("validation_rules"), dict) else {}
+              question_spec = {
+                  "question_template_id": template_id,
+                  "knowledge_point_id": kp_id,
+                  "knowledge_point_name": kp_name,
+                  "difficulty": _text(request.get("difficulty") or "medium").lower(),
+                  "question_role": role,
+                  "source_question_instance_id": _text(request.get("source_question_instance_id")),
+                  "title": title,
+                  "prompt": prompt,
+                  "question_type": question_type,
+                  "options": options,
+                  "answer_schema": answer_schema,
+                  "expected_answer": expected,
+                  "accepted_answers": accepted_answers,
+                  "grading_mode": grading_mode,
+                  "reference_answer": reference,
+                  "rubric": rubric,
+                  "hard_required_points": requirements,
+                  "validation_rules": rules,
+                  "assessed_concept_ids": [str(item).strip() for item in _list(generated.get("assessed_concept_ids")) if str(item).strip()],
+                  "variant_changes": variant_changes,
+                  "source_refs": source_refs,
+              }
+              public_question = {
+                  key: value for key, value in question_spec.items()
+                  if key not in {
+                      "expected_answer",
+                      "accepted_answers",
+                      "grading_mode",
+                      "reference_answer",
+                      "rubric",
+                      "hard_required_points",
+                      "validation_rules",
+                  }
+              }
+              result = {
+                  "schema_version": RESULT_SCHEMA,
+                  "workflow_mode": "wf04_training_evaluation",
+                  "status": "ok",
+                  "action": "generate_question",
+                  "request_id": _text(request.get("request_id")),
+                  "student_id": _text(request.get("student_id")),
+                  "project_id": _text(request.get("project_id")),
+                  "task_instance_id": _text(request.get("task_instance_id")),
+                  "question_spec": question_spec,
+                  "public_question": public_question,
+                  "id_ownership": "host_backend",
+                  "persistence_owner": "zhixing_backend",
+                  "host_write_allowed": True,
+              }
+              return {"result_json": json.dumps(result, ensure_ascii=False)}
+        appId: ''
+        codeErrMsg: ''
+      icon: https://oss-beijing-m8.openstorage.cn/SparkBotProd/icon/icon-wrapper-question.svg
+      description: 面向开发者提供代码开发能力，目前仅支持python语言，允许使用该节点已定义的变量作为参数传入，返回语句用于输出函数的结果
+      updatable: false
+  - id: spark-llm::62ec7608-4993-54a2-b79e-f37524b81715
+    dragging: false
+    selected: false
+    width: 291
+    height: 123
+    position:
+      x: -500
+      y: 0
+    positionAbsolute:
+      x: -500
+      y: 0
+    type: 大模型
+    data:
+      allowInputReference: true
+      allowOutputReference: true
+      label: 分析学生答案语义证据
+      labelEdit: false
+      references: [
+        ]
+      status: ''
+      nodeMeta:
+        aliasName: 大模型
+        nodeType: 基础节点
+      inputs:
+      - id: 7782f9e6-b3ee-545d-91f8-5c88c83b27ff
+        name: prompt
+        nameErrMsg: ''
+        schema:
+          type: string
+          value:
+            type: ref
+            content:
+              name: prompt_json
+              id: 3ba6aa61-7e57-5b7b-87c8-2dfe93d23edf
+              nodeId: ifly-code::4c67ca6d-807f-5600-a149-caf9fdd3f3fe
+            contentErrMsg: ''
+        fileType: ''
+      outputs:
+      - id: a145066c-e883-53bd-8e27-486023e71b56
+        name: model_output
+        nameErrMsg: ''
+        schema:
+          type: string
+          default: ''
+        required: false
+      nodeParam:
+        topK: 4
+        template: '{{prompt}}'
+        modelId: 10000033
+        enableChatHistoryV2:
+          isEnabled: false
+          rounds: 1
+        auditing: default
+        llmId: 10000033
+        url: wss://maas-api.cn-huabei-1.xf-yun.com/v1.1/chat
+        multiMode: false
+        uid: ''
+        modelName: Kimi-K2.5
+        patchId: '0'
+        isThink: false
+        templateErrMsg: ''
+        domain: xopkimik25
+        appId: ''
+        maxTokens: 4096
+        temperature: 0.1
+        systemTemplate: |-
+          你是“知行课径”系统调用的开放式作答语义证据分析器。你只分析证据，不更新掌握度，不写数据库，不生成题后讲解。
+
+          必须遵守：
+          1. 只根据 question_snapshot、current_attempt、task_contract 判断，不补造题意或学生答案。
+          2. 每个 rubric 项都输出 criterion_id、是否满足、得分和学生答案中的直接证据。
+          3. 每个硬性要求都必须单独判断；没有明确证据时按未满足处理。
+          4. error_points 必须具体说明学生证据、预期行为和根因，不能只写“回答错误”。
+          5. 不自行决定最终是否通过；后续代码节点按分数和硬性要求确定。
+          6. 只输出一个合法 JSON 对象，不输出 Markdown 代码块或额外文字。
+
+          输出格式：
+          {
+            "criterion_results": [
+              {"criterion_id": "与rubric一致", "met": true, "awarded_points": 30, "evidence": "学生答案中的证据"}
+            ],
+            "hard_requirement_results": [
+              {"requirement_id": "与硬性要求一致", "met": false, "evidence": "未满足的证据"}
+            ],
+            "error_points": [
+              {
+                "error_id": "稳定英文或数字ID",
+                "error_type": "conceptual|procedural|boundary|complexity|code|expression",
+                "student_evidence": "学生答案原文证据",
+                "expected_behavior": "应该达到的要求",
+                "root_cause": "错误根因",
+                "severity": "low|medium|high",
+                "confidence": 0.0
+              }
+            ],
+            "summary": "简明评价",
+            "confidence": 0.0
+          }
+        model: spark
+        setAnswerContentErrMsg: ''
+        modelEnabled: true
+        serviceId: xopkimik25
+        respFormat: 0
+        llmIdErrMsg: ''
+      retryConfig:
+        shouldRetry: true
+        customOutput: |-
+          {
+            "model_output": ""
+          }
+        errorStrategy: 0
+      icon: https://oss-beijing-m8.openstorage.cn/SparkBotProd/icon/icon-wrapper-model.svg
+      description: 根据输入的提示词，调用选定的大模型，对提示词作出回答
+      updatable: false
+  - id: ifly-code::70a55dce-08c3-5499-bfc0-bc04331daa94
+    dragging: false
+    selected: false
+    width: 311
+    height: 99
+    position:
+      x: 0
+      y: 0
+    positionAbsolute:
+      x: 0
+      y: 0
+    type: 代码
+    data:
+      allowInputReference: true
+      allowOutputReference: true
+      label: 确定性评分并生成有效评价
+      labelEdit: false
+      references: [
+        ]
+      status: ''
+      nodeMeta:
+        aliasName: 代码
+        nodeType: 工具
+      inputs:
+      - id: 3216c5ca-5fc8-5087-917a-66f134ab77e8
+        name: model_output
+        nameErrMsg: ''
+        schema:
+          type: string
+          value:
+            type: ref
+            content:
+              name: model_output
+              id: a145066c-e883-53bd-8e27-486023e71b56
+              nodeId: spark-llm::62ec7608-4993-54a2-b79e-f37524b81715
+            contentErrMsg: ''
+        fileType: ''
+      - id: 83272134-6334-538c-b0d6-826aa731b5b9
+        name: request_json
+        nameErrMsg: ''
+        schema:
+          type: string
+          value:
+            type: ref
+            content:
+              name: request_json
+              id: 827e4165-317e-5da4-bab4-d931a663cf71
+              nodeId: ifly-code::4c67ca6d-807f-5600-a149-caf9fdd3f3fe
+            contentErrMsg: ''
+        fileType: ''
+      outputs:
+      - id: e2a01b9e-3ace-581c-bc64-d397e12295e0
+        name: result_json
+        nameErrMsg: ''
+        schema:
+          type: string
+          default: ''
+        required: false
+      nodeParam:
+        uid: ''
+        code: |-
+          import hashlib
+          import json
+          import re
+
+          RESULT_SCHEMA = "ZHIXING_WF04_RESULT.v1"
+
+
+          def _object(value):
+              def decode(candidate, depth=0):
+                  if depth > 5:
+                      return {}
+                  if isinstance(candidate, dict):
+                      expected_keys = {
+                          "title", "prompt", "question_type", "criterion_results",
+                          "schema_version", "request_id", "action",
+                      }
+                      if expected_keys.intersection(candidate):
+                          return candidate
+                      for key in ("content", "output", "result", "data", "text", "answer"):
+                          if key in candidate:
+                              nested = decode(candidate.get(key), depth + 1)
+                              if nested:
+                                  return nested
+                      return candidate
+                  if isinstance(candidate, list) and len(candidate) == 1:
+                      return decode(candidate[0], depth + 1)
+                  text = str(candidate or "").lstrip("\ufeff").strip()
+                  if not text:
+                      return {}
+                  try:
+                      parsed = json.loads(text, strict=False)
+                  except Exception:
+                      parsed = None
+                  if parsed is not None:
+                      nested = decode(parsed, depth + 1)
+                      if nested:
+                          return nested
+                  fenced = re.findall(r"```(?:json)?\s*([\s\S]*?)```", text, flags=re.I)
+                  for block in fenced:
+                      nested = decode(block, depth + 1)
+                      if nested:
+                          return nested
+                  in_string = False
+                  escaped = False
+                  level = 0
+                  start = -1
+                  for index, char in enumerate(text):
+                      if in_string:
+                          if escaped:
+                              escaped = False
+                          elif char == "\\":
+                              escaped = True
+                          elif char == '"':
+                              in_string = False
+                          continue
+                      if char == '"':
+                          in_string = True
+                      elif char == "{":
+                          if level == 0:
+                              start = index
+                          level += 1
+                      elif char == "}" and level:
+                          level -= 1
+                          if level == 0 and start >= 0:
+                              try:
+                                  parsed = json.loads(text[start:index + 1], strict=False)
+                              except Exception:
+                                  parsed = None
+                              if parsed is not None:
+                                  nested = decode(parsed, depth + 1)
+                                  if nested:
+                                      return nested
+                              start = -1
+                  return {}
+
+              return decode(value)
+
+
+          def _output_diagnostic(value):
+              text = str(value or "")
+              digest = hashlib.sha256(text.encode("utf-8", errors="replace")).hexdigest()[:12]
+              return "输出类型=" + type(value).__name__ + "，字符数=" + str(len(text)) + "，摘要=" + digest
+
+
+          def _text(value):
+              return str(value or "").strip()
+
+
+          def _list(value):
+              return value if isinstance(value, list) else []
+
+
+          def _number(value, default=0.0):
+              try:
+                  return float(value)
+              except Exception:
+                  return float(default)
+
+
+          def _clamp(value, low=0.0, high=100.0):
+              return max(low, min(high, _number(value)))
+
+
+          def _criterion_id(raw, index):
+              if not isinstance(raw, dict):
+                  return "C" + str(index)
+              return _text(raw.get("criterion_id") or "C" + str(index))
+
+
+          def _requirement_id(raw, index):
+              if isinstance(raw, str):
+                  return "R" + str(index)
+              if not isinstance(raw, dict):
+                  return "R" + str(index)
+              return _text(raw.get("requirement_id") or "R" + str(index))
+
+
+          def _error(request, code, message):
+              return {
+                  "schema_version": RESULT_SCHEMA,
+                  "workflow_mode": "wf04_training_evaluation",
+                  "status": "error",
+                  "action": "evaluate_answer",
+                  "request_id": _text(request.get("request_id")),
+                  "student_id": _text(request.get("student_id")),
+                  "question_instance_id": _text(request.get("question_instance_id")),
+                  "attempt_id": _text(request.get("attempt_id")),
+                  "error": {
+                      "code": code,
+                      "message": message,
+                      "retryable": code == "E_MODEL_OUTPUT_INVALID",
+                  },
+                  "host_write_allowed": False,
+              }
+
+
+          def main(model_output, request_json):
+              request = _object(request_json)
+              analysis = _object(model_output)
+              if not analysis:
+                  message = "评价模型未返回可恢复的 JSON 对象；" + _output_diagnostic(model_output)
+                  result = _error(request, "E_MODEL_OUTPUT_INVALID", message)
+                  return {"result_json": json.dumps(result, ensure_ascii=False)}
+              question = request.get("question_snapshot") if isinstance(request.get("question_snapshot"), dict) else {}
+              attempt = request.get("current_attempt") if isinstance(request.get("current_attempt"), dict) else {}
+              contract = request.get("task_contract") if isinstance(request.get("task_contract"), dict) else {}
+              rubric = question.get("rubric") if isinstance(question.get("rubric"), list) else contract.get("rubric")
+              rubric = rubric if isinstance(rubric, list) else []
+              criterion_outputs = analysis.get("criterion_results") if isinstance(analysis.get("criterion_results"), list) else []
+              criterion_map = {
+                  _text(item.get("criterion_id")): item
+                  for item in criterion_outputs if isinstance(item, dict) and _text(item.get("criterion_id"))
+              }
+              normalized_criteria = []
+              total_points = 0.0
+              awarded_points = 0.0
+              required_criteria_met = True
+              for index, raw in enumerate(rubric, start=1):
+                  if not isinstance(raw, dict):
+                      continue
+                  cid = _criterion_id(raw, index)
+                  maximum = max(0.0, _number(raw.get("max_points", raw.get("points", 0))))
+                  if maximum <= 0:
+                      continue
+                  model_item = criterion_map.get(cid, {})
+                  awarded = _clamp(model_item.get("awarded_points", 0), 0.0, maximum)
+                  met = bool(model_item.get("met", False))
+                  if bool(raw.get("required", False)) and not met:
+                      required_criteria_met = False
+                  total_points += maximum
+                  awarded_points += awarded
+                  normalized_criteria.append({
+                      "criterion_id": cid,
+                      "description": _text(raw.get("description") or raw.get("criterion")),
+                      "max_points": maximum,
+                      "awarded_points": awarded,
+                      "met": met,
+                      "required": bool(raw.get("required", False)),
+                      "evidence": _text(model_item.get("evidence")),
+                  })
+              if total_points <= 0:
+                  result = _error(request, "E_RUBRIC_MISSING", "评价缺少可计算的 rubric，已阻断正式写入")
+                  return {"result_json": json.dumps(result, ensure_ascii=False)}
+              score = round(awarded_points / total_points * 100.0, 1)
+              requirements = question.get("hard_required_points")
+              if not isinstance(requirements, list):
+                  requirements = contract.get("hard_required_points")
+              requirements = requirements if isinstance(requirements, list) else []
+              requirement_outputs = analysis.get("hard_requirement_results") if isinstance(analysis.get("hard_requirement_results"), list) else []
+              requirement_map = {
+                  _text(item.get("requirement_id")): item
+                  for item in requirement_outputs if isinstance(item, dict) and _text(item.get("requirement_id"))
+              }
+              normalized_requirements = []
+              hard_met = required_criteria_met
+              for index, raw in enumerate(requirements, start=1):
+                  rid = _requirement_id(raw, index)
+                  description = _text(raw if isinstance(raw, str) else raw.get("description"))
+                  model_item = requirement_map.get(rid, {})
+                  met = bool(model_item.get("met", False))
+                  hard_met = hard_met and met
+                  normalized_requirements.append({
+                      "requirement_id": rid,
+                      "description": description,
+                      "met": met,
+                      "evidence": _text(model_item.get("evidence")),
+                  })
+              rules = question.get("validation_rules") if isinstance(question.get("validation_rules"), dict) else contract.get("validation_rules")
+              rules = rules if isinstance(rules, dict) else {}
+              pass_score = _clamp(rules.get("pass_score", 80), 0.0, 100.0)
+              is_correct = score >= pass_score and hard_met
+              hint_used = bool(attempt.get("hint_used", False))
+              solution_revealed = bool(attempt.get("solution_revealed", False))
+              independent = not hint_used and not solution_revealed
+              confidence = max(0.0, min(1.0, _number(analysis.get("confidence"), 0.5)))
+              knowledge_id = _text(question.get("knowledge_point_id"))
+              knowledge_name = _text(question.get("knowledge_point_name") or knowledge_id)
+              errors = []
+              for index, raw in enumerate(_list(analysis.get("error_points")), start=1):
+                  if not isinstance(raw, dict):
+                      continue
+                  severity = _text(raw.get("severity") or "medium").lower()
+                  if severity not in {"low", "medium", "high"}:
+                      severity = "medium"
+                  errors.append({
+                      "error_id": _text(raw.get("error_id") or "ERR" + str(index)),
+                      "knowledge_point_id": knowledge_id,
+                      "knowledge_point_name": knowledge_name,
+                      "error_type": _text(raw.get("error_type") or "conceptual"),
+                      "student_evidence": _text(raw.get("student_evidence")),
+                      "expected_behavior": _text(raw.get("expected_behavior")),
+                      "root_cause": _text(raw.get("root_cause")),
+                      "severity": severity,
+                      "confidence": max(0.0, min(1.0, _number(raw.get("confidence"), confidence))),
+                  })
+              if is_correct:
+                  errors = []
+              elif not errors:
+                  errors = [{
+                      "error_id": "EVIDENCE_INSUFFICIENT",
+                      "knowledge_point_id": knowledge_id,
+                      "knowledge_point_name": knowledge_name,
+                      "error_type": "expression",
+                      "student_evidence": _text(attempt.get("student_answer")),
+                      "expected_behavior": "按照 rubric 与硬性要求给出完整、可验证的答案",
+                      "root_cause": "当前答案未提供足够证据满足评分标准",
+                      "severity": "medium",
+                      "confidence": confidence,
+                  }]
+              identity = "|".join([
+                  _text(request.get("request_id")),
+                  _text(request.get("question_instance_id")),
+                  _text(request.get("attempt_id")),
+              ])
+              digest = hashlib.sha256(identity.encode("utf-8")).hexdigest()[:24]
+              evaluation_id = "EVAL-" + digest.upper()
+              event_id = "EVID-" + digest.upper()
+              wrongbook_event_id = "WB-" + digest.upper()
+              question_instance_id = _text(request.get("question_instance_id"))
+              source_question_instance_id = _text(
+                  question.get("source_question_instance_id") or question.get("source_question_id")
+              )
+              root_question_instance_id = _text(
+                  question.get("root_question_instance_id")
+                  or source_question_instance_id
+                  or question_instance_id
+              )
+              if is_correct and independent:
+                  evidence_type = "independent_correct"
+                  next_action = "generate_variant"
+                  recommended_difficulty = "same"
+                  intervention = "normal"
+                  wrongbook_event_type = "independent_correct_recorded"
+                  wrongbook_projection_instruction = "mark_improved_not_deleted_if_prior_wrong"
+                  wrongbook_proposed_status = "improved_not_deleted_if_prior_wrong"
+              elif is_correct:
+                  evidence_type = "assisted_correct"
+                  next_action = "direct_validation"
+                  recommended_difficulty = "same"
+                  intervention = "guided"
+                  wrongbook_event_type = "assisted_correct_recorded"
+                  wrongbook_projection_instruction = "retain_needs_review_if_prior_wrong"
+                  wrongbook_proposed_status = "needs_review_if_prior_wrong"
+              elif score < 50:
+                  evidence_type = "incorrect"
+                  next_action = "learn_knowledge"
+                  recommended_difficulty = "down_one"
+                  intervention = "intensive"
+                  wrongbook_event_type = "wrong_attempt_recorded"
+                  wrongbook_projection_instruction = "upsert_needs_review"
+                  wrongbook_proposed_status = "needs_review"
+              else:
+                  evidence_type = "incorrect"
+                  next_action = "retry_original"
+                  recommended_difficulty = "same"
+                  intervention = "guided"
+                  wrongbook_event_type = "wrong_attempt_recorded"
+                  wrongbook_projection_instruction = "upsert_needs_review"
+                  wrongbook_proposed_status = "needs_review"
+              validated = {
+                  "validation_passed": True,
+                  "evaluation_id": evaluation_id,
+                  "evaluation_status": "correct" if is_correct else "incorrect",
+                  "score": score,
+                  "max_score": 100,
+                  "pass_score": pass_score,
+                  "hard_requirements_met": hard_met,
+                  "independent_evidence": independent,
+                  "criterion_results": normalized_criteria,
+                  "hard_requirement_results": normalized_requirements,
+                  "error_points": errors,
+                  "summary": _text(analysis.get("summary")),
+                  "confidence": confidence,
+              }
+              result = {
+                  "schema_version": RESULT_SCHEMA,
+                  "workflow_mode": "wf04_training_evaluation",
+                  "status": "ok",
+                  "action": "evaluate_answer",
+                  "request_id": _text(request.get("request_id")),
+                  "student_id": _text(request.get("student_id")),
+                  "project_id": _text(request.get("project_id")),
+                  "task_instance_id": _text(request.get("task_instance_id")),
+                  "question_instance_id": question_instance_id,
+                  "attempt_id": _text(request.get("attempt_id")),
+                  "evaluation_id": evaluation_id,
+                  "correct": is_correct,
+                  "validated_evaluation": validated,
+                  "adaptive_policy": {
+                      "recommended_action": next_action,
+                      "recommended_difficulty": recommended_difficulty,
+                      "intervention_level": intervention,
+                      "advisory_only": True,
+                  },
+                  "evidence_event": {
+                      "event_id": event_id,
+                      "event_type": evidence_type,
+                      "knowledge_point_id": knowledge_id,
+                      "score": score,
+                      "confidence": confidence,
+                      "question_instance_id": question_instance_id,
+                      "attempt_id": _text(request.get("attempt_id")),
+                      "evaluation_id": evaluation_id,
+                  },
+                  "wrongbook_event": {
+                      "event_id": wrongbook_event_id,
+                      "event_type": wrongbook_event_type,
+                      "projection_instruction": wrongbook_projection_instruction,
+                      "proposed_status": wrongbook_proposed_status,
+                      "student_id": _text(request.get("student_id")),
+                      "project_id": _text(request.get("project_id")),
+                      "task_instance_id": _text(request.get("task_instance_id")),
+                      "knowledge_point_id": knowledge_id,
+                      "question_instance_id": question_instance_id,
+                      "source_question_instance_id": source_question_instance_id,
+                      "root_question_instance_id": root_question_instance_id,
+                      "question_role": _text(question.get("question_role") or "recommended"),
+                      "attempt_id": _text(request.get("attempt_id")),
+                      "evaluation_id": evaluation_id,
+                      "independent_evidence": independent,
+                      "current_unresolved_error_points": errors if not is_correct else [],
+                      "history_retention_policy": "never_delete_failed_attempts",
+                  },
+                  "wrongbook_projection_owner": "zhixing_backend",
+                  "state_write_policy": "host_backend_only",
+                  "persistence_owner": "zhixing_backend",
+                  "host_write_allowed": True,
+              }
+              return {"result_json": json.dumps(result, ensure_ascii=False)}
+        appId: ''
+        codeErrMsg: ''
+      icon: https://oss-beijing-m8.openstorage.cn/SparkBotProd/icon/icon-wrapper-question.svg
+      description: 面向开发者提供代码开发能力，目前仅支持python语言，允许使用该节点已定义的变量作为参数传入，返回语句用于输出函数的结果
+      updatable: false
+  - id: ifly-code::553d8999-cd0d-54c8-80c3-54d467881bf1
+    dragging: false
+    selected: false
+    width: 311
+    height: 99
+    position:
+      x: -50
+      y: 450
+    positionAbsolute:
+      x: -50
+      y: 450
+    type: 代码
+    data:
+      allowInputReference: true
+      allowOutputReference: true
+      label: 计算下一步自适应训练建议
+      labelEdit: false
+      references: [
+        ]
+      status: ''
+      nodeMeta:
+        aliasName: 代码
+        nodeType: 工具
+      inputs:
+      - id: 30242b01-8e07-507b-a422-76b14c17d8ef
+        name: request_json
+        nameErrMsg: ''
+        schema:
+          type: string
+          value:
+            type: ref
+            content:
+              name: request_json
+              id: 827e4165-317e-5da4-bab4-d931a663cf71
+              nodeId: ifly-code::4c67ca6d-807f-5600-a149-caf9fdd3f3fe
+            contentErrMsg: ''
+        fileType: ''
+      outputs:
+      - id: ef100dec-8075-528e-8972-445bb0916381
+        name: result_json
+        nameErrMsg: ''
+        schema:
+          type: string
+          default: ''
+        required: false
+      nodeParam:
+        uid: ''
+        code: |-
+          import json
+
+          RESULT_SCHEMA = "ZHIXING_WF04_RESULT.v1"
+
+
+          def _object(value):
+              if isinstance(value, dict):
+                  return value
+              try:
+                  result = json.loads(str(value or "{}"), strict=False)
+              except Exception:
+                  result = {}
+              return result if isinstance(result, dict) else {}
+
+
+          def _number(value, default=0.0):
+              try:
+                  return float(value)
+              except Exception:
+                  return float(default)
+
+
+          def _text(value):
+              return str(value or "").strip()
+
+
+          def main(request_json):
+              request = _object(request_json)
+              summary = request.get("evidence_summary") if isinstance(request.get("evidence_summary"), dict) else {}
+              knowledge = request.get("knowledge_point") if isinstance(request.get("knowledge_point"), dict) else {}
+              mastery = max(0.0, min(1.0, _number(summary.get("mastery"))))
+              confidence = max(0.0, min(1.0, _number(summary.get("confidence"))))
+              independent_count = max(0, int(_number(summary.get("independent_evidence_count"))))
+              minimum = max(1, int(_number(summary.get("minimum_independent_evidence"), 2)))
+              recent = summary.get("recent_attempts") if isinstance(summary.get("recent_attempts"), list) else []
+              consecutive_wrong = 0
+              for item in reversed(recent):
+                  if not isinstance(item, dict):
+                      continue
+                  if _text(item.get("evaluation_status")) == "incorrect":
+                      consecutive_wrong += 1
+                  else:
+                      break
+              mastery_threshold = max(0.0, min(1.0, _number(summary.get("mastery_threshold"), 0.8)))
+              confidence_threshold = max(0.0, min(1.0, _number(summary.get("confidence_threshold"), 0.4)))
+              if consecutive_wrong >= 2:
+                  action = "learn_knowledge"
+                  difficulty = "down_one"
+                  level = "intensive"
+                  reason = "最近连续作答困难，建议先回学当前知识点，再由学生决定是否继续。"
+              elif mastery >= mastery_threshold and confidence >= confidence_threshold and independent_count >= minimum:
+                  action = "switch_knowledge_or_challenge"
+                  difficulty = "up_one"
+                  level = "normal"
+                  reason = "掌握度、可信度和独立证据均达到当前规则，可以挑战或切换知识点。"
+              elif independent_count < minimum:
+                  action = "continue_practice"
+                  difficulty = "same"
+                  level = "normal"
+                  reason = "独立证据尚未达到最低数量，建议继续练习，但不强制。"
+              elif mastery < mastery_threshold:
+                  action = "generate_variant"
+                  difficulty = "same"
+                  level = "guided"
+                  reason = "已有证据但掌握度未达阈值，建议用变式题验证迁移。"
+              else:
+                  action = "continue_practice"
+                  difficulty = "same"
+                  level = "normal"
+                  reason = "当前证据没有触发强干预，保持难度继续练习。"
+              result = {
+                  "schema_version": RESULT_SCHEMA,
+                  "workflow_mode": "wf04_training_evaluation",
+                  "status": "ok",
+                  "action": "recommend_next_practice",
+                  "request_id": _text(request.get("request_id")),
+                  "student_id": _text(request.get("student_id")),
+                  "project_id": _text(request.get("project_id")),
+                  "task_instance_id": _text(request.get("task_instance_id")),
+                  "knowledge_point_id": _text(knowledge.get("knowledge_point_id")),
+                  "adaptive_policy": {
+                      "recommended_action": action,
+                      "recommended_difficulty": difficulty,
+                      "intervention_level": level,
+                      "reason": reason,
+                      "advisory_only": True,
+                      "student_may_exit_or_choose_other_action": True,
+                  },
+                  "rule_check": {
+                      "mastery_threshold_met": mastery >= mastery_threshold,
+                      "confidence_threshold_met": confidence >= confidence_threshold,
+                      "minimum_independent_evidence_met": independent_count >= minimum,
+                      "consecutive_wrong_count": consecutive_wrong,
+                  },
+                  "state_write_policy": "host_backend_only",
+                  "persistence_owner": "zhixing_backend",
+                  "host_write_allowed": True,
+              }
+              return {"result_json": json.dumps(result, ensure_ascii=False)}
+        appId: ''
+        codeErrMsg: ''
+      icon: https://oss-beijing-m8.openstorage.cn/SparkBotProd/icon/icon-wrapper-question.svg
+      description: 面向开发者提供代码开发能力，目前仅支持python语言，允许使用该节点已定义的变量作为参数传入，返回语句用于输出函数的结果
+      updatable: false
+  - id: ifly-code::e642fd84-209f-5245-b5ba-0423eb2fc841
+    dragging: false
+    selected: false
+    width: 276
+    height: 99
+    position:
+      x: -500
+      y: 750
+    positionAbsolute:
+      x: -500
+      y: 750
+    type: 代码
+    data:
+      allowInputReference: true
+      allowOutputReference: true
+      label: 返回协议校验错误
+      labelEdit: false
+      references: [
+        ]
+      status: ''
+      nodeMeta:
+        aliasName: 代码
+        nodeType: 工具
+      inputs:
+      - id: 08950ace-1e7b-5960-8c40-e5da5d8ce2b6
+        name: error_result_json
+        nameErrMsg: ''
+        schema:
+          type: string
+          value:
+            type: ref
+            content:
+              name: error_result_json
+              id: 6182a936-e6b2-5402-9031-70d02bd9092c
+              nodeId: ifly-code::4c67ca6d-807f-5600-a149-caf9fdd3f3fe
+            contentErrMsg: ''
+        fileType: ''
+      - id: a098842f-3554-5eb6-b310-16d0bc6fb76d
+        name: request_json
+        nameErrMsg: ''
+        schema:
+          type: string
+          value:
+            type: ref
+            content:
+              name: request_json
+              id: 827e4165-317e-5da4-bab4-d931a663cf71
+              nodeId: ifly-code::4c67ca6d-807f-5600-a149-caf9fdd3f3fe
+            contentErrMsg: ''
+        fileType: ''
+      outputs:
+      - id: a4f59274-d1ef-53ed-9644-16f957f1262d
+        name: result_json
+        nameErrMsg: ''
+        schema:
+          type: string
+          default: ''
+        required: false
+      nodeParam:
+        uid: ''
+        code: |-
+          import json
+
+
+          def main(error_result_json, request_json):
+              text = str(error_result_json or "").strip()
+              if text:
+                  try:
+                      value = json.loads(text, strict=False)
+                      if isinstance(value, dict) and value.get("status") == "error":
+                          return {"result_json": json.dumps(value, ensure_ascii=False)}
+                  except Exception:
+                      pass
+              try:
+                  request = json.loads(str(request_json or "{}"), strict=False)
+              except Exception:
+                  request = {}
+              result = {
+                  "schema_version": "ZHIXING_WF04_RESULT.v1",
+                  "workflow_mode": "wf04_training_evaluation",
+                  "status": "error",
+                  "action": str(request.get("action") or ""),
+                  "request_id": str(request.get("request_id") or ""),
+                  "student_id": str(request.get("student_id") or ""),
+                  "error": {"code": "E_UNSUPPORTED_ROUTE", "message": "请求未进入受支持的训练评估能力"},
+                  "host_write_allowed": False,
+              }
+              return {"result_json": json.dumps(result, ensure_ascii=False)}
+        appId: ''
+        codeErrMsg: ''
+      icon: https://oss-beijing-m8.openstorage.cn/SparkBotProd/icon/icon-wrapper-question.svg
+      description: 面向开发者提供代码开发能力，目前仅支持python语言，允许使用该节点已定义的变量作为参数传入，返回语句用于输出函数的结果
+      updatable: false
+  - id: ifly-code::bcaf66cb-1682-56bc-8aca-2c12a52e4ae3
+    dragging: false
+    selected: false
+    width: 361
+    height: 99
+    position:
+      x: 500
+      y: 0
+    positionAbsolute:
+      x: 500
+      y: 0
+    type: 代码
+    data:
+      allowInputReference: true
+      allowOutputReference: true
+      label: 合并兼容能力结果
+      labelEdit: false
+      references: [
+        ]
+      status: ''
+      nodeMeta:
+        aliasName: 代码
+        nodeType: 工具
+      inputs:
+      - id: 40e36fd6-258c-5ece-869f-fa8f667f123f
+        name: question_result_json
+        nameErrMsg: ''
+        schema:
+          type: string
+          value:
+            type: ref
+            content:
+              name: result_json
+              id: da1cf287-e379-54ad-bd1b-d5821b1f5051
+              nodeId: ifly-code::2e033bf5-7ba9-59bf-9e5d-536463265d5d
+            contentErrMsg: ''
+        fileType: ''
+      - id: 2e0458be-2396-5780-8e40-bb09a7e69ae4
+        name: evaluation_result_json
+        nameErrMsg: ''
+        schema:
+          type: string
+          value:
+            type: ref
+            content:
+              name: result_json
+              id: e2a01b9e-3ace-581c-bc64-d397e12295e0
+              nodeId: ifly-code::70a55dce-08c3-5499-bfc0-bc04331daa94
+            contentErrMsg: ''
+        fileType: ''
+      - id: b5ce36ad-08f5-5873-b135-4ade67eeb090
+        name: policy_result_json
+        nameErrMsg: ''
+        schema:
+          type: string
+          value:
+            type: ref
+            content:
+              name: result_json
+              id: ef100dec-8075-528e-8972-445bb0916381
+              nodeId: ifly-code::553d8999-cd0d-54c8-80c3-54d467881bf1
+            contentErrMsg: ''
+        fileType: ''
+      - id: 83d558a0-4ac4-5646-857f-3c6bd5931ada
+        name: error_result_json
+        nameErrMsg: ''
+        schema:
+          type: string
+          value:
+            type: ref
+            content:
+              name: result_json
+              id: a4f59274-d1ef-53ed-9644-16f957f1262d
+              nodeId: ifly-code::e642fd84-209f-5245-b5ba-0423eb2fc841
+            contentErrMsg: ''
+        fileType: ''
+      outputs:
+      - id: f047f706-f568-566c-a23e-9f58650e6887
+        name: result_json
+        nameErrMsg: ''
+        schema:
+          type: string
+          default: ''
+        required: false
+      nodeParam:
+        uid: ''
+        code: |-
+          import json
+
+
+          def main(question_result_json, evaluation_result_json, policy_result_json, error_result_json):
+              for candidate in (question_result_json, evaluation_result_json, policy_result_json, error_result_json):
+                  text = str(candidate or "").strip()
+                  if not text:
+                      continue
+                  try:
+                      value = json.loads(text, strict=False)
+                  except Exception:
+                      continue
+                  if isinstance(value, dict) and value.get("schema_version") == "ZHIXING_WF04_RESULT.v1":
+                      return {"result_json": json.dumps(value, ensure_ascii=False)}
+              fallback = {
+                  "schema_version": "ZHIXING_WF04_RESULT.v1",
+                  "workflow_mode": "wf04_training_evaluation",
+                  "status": "error",
+                  "action": "",
+                  "error": {"code": "E_INTERNAL_ROUTE", "message": "没有收到可用的分支结果"},
+                  "host_write_allowed": False,
+              }
+              return {"result_json": json.dumps(fallback, ensure_ascii=False)}
+        appId: ''
+        codeErrMsg: ''
+      icon: https://oss-beijing-m8.openstorage.cn/SparkBotProd/icon/icon-wrapper-question.svg
+      description: 面向开发者提供代码开发能力，目前仅支持python语言，允许使用该节点已定义的变量作为参数传入，返回语句用于输出函数的结果
+      updatable: false
+  - id: node-end::afb29b9a-55e3-53be-ae6b-1074a85b868d
+    dragging: false
+    selected: false
+    width: 255
+    height: 73
+    position:
+      x: 950
+      y: 0
+    positionAbsolute:
+      x: 950
+      y: 0
+    type: 结束节点
+    data:
+      allowInputReference: true
+      allowOutputReference: false
+      label: 结束
+      references: [
+        ]
+      status: ''
+      nodeMeta:
+        aliasName: 结束节点
+        nodeType: 基础节点
+      inputs:
+      - id: 391e8793-777d-5d6e-bb62-3cabb3bdb907
+        name: output
+        nameErrMsg: ''
+        schema:
+          type: string
+          value:
+            type: ref
+            content:
+              name: result_json
+              id: f047f706-f568-566c-a23e-9f58650e6887
+              nodeId: ifly-code::bcaf66cb-1682-56bc-8aca-2c12a52e4ae3
+            contentErrMsg: ''
+        fileType: ''
+      outputs: [
+        ]
+      nodeParam:
+        template: '{{output}}'
+        streamOutput: true
+        templateErrMsg: ''
+        outputMode: 1
+      icon: https://oss-beijing-m8.openstorage.cn/pro-bucket/sparkBot/common/workflow/icon/end-node-icon.png
+      description: 工作流的结束节点，用于输出工作流运行后的最终结果。
+      updatable: false
+  edges:
+  - source: node-start::4b3a7b46-1c88-55e6-94d5-b32e8f94da7d
+    sourceHandle: ''
+    target: ifly-code::4c67ca6d-807f-5600-a149-caf9fdd3f3fe
+    type: customEdge
+    id: reactflow__edge-90aa5c26-650b-5e27-80a6-2ce476768019
+    markerEnd:
+      color: '#6356EA'
+      type: arrow
+    data:
+      edgeType: curve
+  - source: ifly-code::4c67ca6d-807f-5600-a149-caf9fdd3f3fe
+    sourceHandle: ''
+    target: if-else::857f83d4-c542-5461-a9cd-88f2fe9450b1
+    type: customEdge
+    id: reactflow__edge-13a9bf0a-d8c2-586d-bdf1-1aa6cbd06ce7
+    markerEnd:
+      color: '#6356EA'
+      type: arrow
+    data:
+      edgeType: curve
+  - source: if-else::857f83d4-c542-5461-a9cd-88f2fe9450b1
+    sourceHandle: branch_one_of::65bd147e-dcf4-542e-9f0b-92d893a20375
+    target: spark-llm::dbb70f28-538b-5aae-9d07-1a3328a7e4aa
+    type: customEdge
+    id: reactflow__edge-255bd522-b252-5655-ba8d-9540e220aaf3
+    markerEnd:
+      color: '#6356EA'
+      type: arrow
+    data:
+      edgeType: curve
+  - source: spark-llm::dbb70f28-538b-5aae-9d07-1a3328a7e4aa
+    sourceHandle: ''
+    target: ifly-code::2e033bf5-7ba9-59bf-9e5d-536463265d5d
+    type: customEdge
+    id: reactflow__edge-35e76b3f-dcae-5a99-b7b2-0f0cbf446a74
+    markerEnd:
+      color: '#6356EA'
+      type: arrow
+    data:
+      edgeType: curve
+  - source: ifly-code::2e033bf5-7ba9-59bf-9e5d-536463265d5d
+    sourceHandle: ''
+    target: ifly-code::bcaf66cb-1682-56bc-8aca-2c12a52e4ae3
+    type: customEdge
+    id: reactflow__edge-82c6ea70-9624-5fa3-baba-9fb1d95e5686
+    markerEnd:
+      color: '#6356EA'
+      type: arrow
+    data:
+      edgeType: curve
+  - source: if-else::857f83d4-c542-5461-a9cd-88f2fe9450b1
+    sourceHandle: branch_one_of::9bee2307-b4f9-5069-90a5-40685575d665
+    target: spark-llm::62ec7608-4993-54a2-b79e-f37524b81715
+    type: customEdge
+    id: reactflow__edge-b70ca106-e9ef-5d30-9c8d-c4d12167921e
+    markerEnd:
+      color: '#6356EA'
+      type: arrow
+    data:
+      edgeType: curve
+  - source: spark-llm::62ec7608-4993-54a2-b79e-f37524b81715
+    sourceHandle: ''
+    target: ifly-code::70a55dce-08c3-5499-bfc0-bc04331daa94
+    type: customEdge
+    id: reactflow__edge-f5078658-6134-519f-95aa-d32f78fdccf9
+    markerEnd:
+      color: '#6356EA'
+      type: arrow
+    data:
+      edgeType: curve
+  - source: ifly-code::70a55dce-08c3-5499-bfc0-bc04331daa94
+    sourceHandle: ''
+    target: ifly-code::bcaf66cb-1682-56bc-8aca-2c12a52e4ae3
+    type: customEdge
+    id: reactflow__edge-3e62f153-963d-596a-bb2c-cf16978ed924
+    markerEnd:
+      color: '#6356EA'
+      type: arrow
+    data:
+      edgeType: curve
+  - source: if-else::857f83d4-c542-5461-a9cd-88f2fe9450b1
+    sourceHandle: branch_one_of::9f98bb2b-2bfd-5335-b1e0-5a74bc6dd35d
+    target: ifly-code::553d8999-cd0d-54c8-80c3-54d467881bf1
+    type: customEdge
+    id: reactflow__edge-20d7dfaa-9ef1-5000-9ea2-f5b67a85b382
+    markerEnd:
+      color: '#6356EA'
+      type: arrow
+    data:
+      edgeType: curve
+  - source: ifly-code::553d8999-cd0d-54c8-80c3-54d467881bf1
+    sourceHandle: ''
+    target: ifly-code::bcaf66cb-1682-56bc-8aca-2c12a52e4ae3
+    type: customEdge
+    id: reactflow__edge-3c6176a8-6a6f-52c8-bd2d-101ca84d2ae8
+    markerEnd:
+      color: '#6356EA'
+      type: arrow
+    data:
+      edgeType: curve
+  - source: if-else::857f83d4-c542-5461-a9cd-88f2fe9450b1
+    sourceHandle: branch_one_of::f1cc8b03-a134-5480-a463-ca243ba00ff7
+    target: ifly-code::e642fd84-209f-5245-b5ba-0423eb2fc841
+    type: customEdge
+    id: reactflow__edge-e0dc70cc-ecd6-55e7-ba09-4627a0407122
+    markerEnd:
+      color: '#6356EA'
+      type: arrow
+    data:
+      edgeType: curve
+  - source: ifly-code::e642fd84-209f-5245-b5ba-0423eb2fc841
+    sourceHandle: ''
+    target: ifly-code::bcaf66cb-1682-56bc-8aca-2c12a52e4ae3
+    type: customEdge
+    id: reactflow__edge-10064dc3-0cbb-5740-bb08-1a396a4dadae
+    markerEnd:
+      color: '#6356EA'
+      type: arrow
+    data:
+      edgeType: curve
+  - source: ifly-code::bcaf66cb-1682-56bc-8aca-2c12a52e4ae3
+    sourceHandle: ''
+    target: node-end::afb29b9a-55e3-53be-ae6b-1074a85b868d
+    type: customEdge
+    id: reactflow__edge-626c9745-bc2c-539f-81fc-a6aa2cfa8789
+    markerEnd:
+      color: '#6356EA'
+      type: arrow
+    data:
+      edgeType: curve

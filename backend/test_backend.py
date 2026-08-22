@@ -63,6 +63,7 @@ class BackendIntegrationTests(unittest.TestCase):
             request_style="workflow_v1",
             request_timeout=5,
             seed_demo=False,
+            knowledge_retrieval_enabled=False,
         )
         self.server = create_server(settings)
         self.thread = threading.Thread(target=self.server.serve_forever, daemon=True)
@@ -1229,6 +1230,9 @@ class BackendIntegrationTests(unittest.TestCase):
         self.assertEqual(request_body["uid"], "STU-REMOTE-001")
         self.assertFalse(request_body["stream"])
         self.assertEqual(
+            captured["timeout"], XingchenGateway.LEARNING_REQUEST_TIMEOUT_SECONDS
+        )
+        self.assertEqual(
             json.loads(request_body["parameters"]["AGENT_USER_INPUT"]),
             workflow_input,
         )
@@ -1240,6 +1244,68 @@ class BackendIntegrationTests(unittest.TestCase):
             missing_flow_gateway.invoke_wf04_workflow(
                 {"student_id": "STU-REMOTE-001", "action": "generate_question"}
             )
+
+    def test_kimi_knowledge_workflows_use_numeric_outer_uid(self):
+        settings = Settings(
+            host="127.0.0.1",
+            port=0,
+            database_path=Path(self.temporary_directory.name) / "knowledge-remote.db",
+            xingchen_mode="remote",
+            api_url="https://xingchen-api.xf-yun.com/workflow/v1/chat/completions",
+            api_key="api-key",
+            api_secret="api-secret",
+            auth_header="Authorization",
+            auth_scheme="Bearer",
+            flow_id="unified-flow-id",
+            input_key="AGENT_USER_INPUT",
+            request_style="workflow_v1",
+            request_timeout=5,
+            seed_demo=False,
+            knowledge_planning_flow_id="knowledge-planning-flow-id",
+            knowledge_audit_flow_id="knowledge-audit-flow-id",
+        )
+
+        class FakeResponse:
+            def __enter__(self):
+                return self
+
+            def __exit__(self, exception_type, exception, traceback):
+                return False
+
+            def read(self):
+                return json.dumps({
+                    "code": 0,
+                    "choices": [{"delta": {"content": json.dumps({
+                        "status": "ok", "message": "ok",
+                    })}}],
+                }).encode("utf-8")
+
+        request_bodies = []
+
+        def fake_urlopen(request, timeout):
+            request_bodies.append(json.loads(request.data.decode("utf-8")))
+            return FakeResponse()
+
+        planning_payload = {"student_id": "STU-E2E-001", "knowledge_point": {}}
+        audit_payload = {"student_id": "5803659", "evidence": []}
+        gateway = XingchenGateway(settings)
+        with patch("backend.server.urllib.request.urlopen", fake_urlopen):
+            gateway.invoke_knowledge_planning_workflow(planning_payload)
+            gateway.invoke_knowledge_planning_workflow(planning_payload)
+            gateway.invoke_knowledge_audit_workflow(audit_payload)
+
+        self.assertEqual(request_bodies[0]["flow_id"], "knowledge-planning-flow-id")
+        self.assertRegex(request_bodies[0]["uid"], r"^[0-9]+$")
+        self.assertEqual(request_bodies[0]["uid"], request_bodies[1]["uid"])
+        self.assertEqual(request_bodies[2]["uid"], "5803659")
+        self.assertEqual(
+            json.loads(request_bodies[0]["parameters"]["AGENT_USER_INPUT"]),
+            planning_payload,
+        )
+        self.assertEqual(
+            json.loads(request_bodies[2]["parameters"]["AGENT_USER_INPUT"]),
+            audit_payload,
+        )
 
     def test_wf04_request_includes_workflow_extension(self):
         settings = Settings(

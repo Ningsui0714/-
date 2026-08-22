@@ -1,0 +1,13 @@
+{
+  "student_id": "STU-WF-PLANNING-001",
+  "knowledge_point": {
+    "knowledge_point_id": "KN_JAVA_CLASS",
+    "knowledge_point_name": "类的定义与对象创建"
+  },
+  "learning_goal": "系统掌握 Java 面向对象编程",
+  "allowed_source_domains": [
+    "docs.oracle.com",
+    "oracle.com",
+    "doi.org"
+  ]
+}

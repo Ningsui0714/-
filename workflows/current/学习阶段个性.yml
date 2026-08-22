@@ -1,0 +1,1290 @@
+flowMeta:
+  name: 学习阶段个性
+  description: 接收后端生成的学习上下文、策略、学生画像和知识依据，只负责生成并校验学习阶段讲解。
+  avatarIcon: https://openres.xfyun.cn/xfyundoc/2026-01-13/d2fd157d-ccc4-418e-ba9c-c849f5d38b97/1768290625183/16%402x.png
+  avatarColor: '#E8F3FF'
+  advancedConfig: '{"prologue":{"enabled":false},"needGuide":false}'
+  category: 17
+  dslVersion: v1
+flowData:
+  nodes:
+  - id: node-start::901b2816-75f8-547e-87bb-f84d221a657d
+    dragging: false
+    selected: false
+    width: 256
+    height: 74
+    position:
+      x: -265.6060787671234
+      y: 191.52602739726035
+    positionAbsolute:
+      x: -265.6060787671234
+      y: 191.52602739726035
+    type: 开始节点
+    data:
+      allowInputReference: false
+      allowOutputReference: true
+      label: 开始
+      status: ''
+      nodeMeta:
+        aliasName: 开始节点
+        nodeType: 基础节点
+      inputs: [
+        ]
+      outputs:
+      - id: 06ab1984-0bfc-5aff-8276-cc29c3993033
+        name: AGENT_USER_INPUT
+        nameErrMsg: ''
+        schema:
+          type: string
+          default: 包含 context、strategy、student_profile、kb_text 的 JSON 字符串
+        required: true
+        deleteDisabled: true
+      nodeParam: {
+        }
+      icon: https://oss-beijing-m8.openstorage.cn/pro-bucket/sparkBot/common/workflow/icon/start-node-icon.png
+      description: 工作流的开启节点，用于定义流程调用所需的业务变量信息。
+      updatable: false
+  - id: ifly-code::0802a666-df88-52ec-84a5-6fe5399fd0b9
+    dragging: false
+    selected: false
+    width: 362
+    height: 100
+    position:
+      x: 145.55342465753426
+      y: 219.77260273972598
+    positionAbsolute:
+      x: 145.55342465753426
+      y: 219.77260273972598
+    type: 代码
+    data:
+      allowInputReference: true
+      allowOutputReference: true
+      label: 校验学习讲解输入
+      labelEdit: false
+      references: [
+        ]
+      status: ''
+      nodeMeta:
+        aliasName: 代码
+        nodeType: 工具
+      inputs:
+      - id: 7689b677-6476-5218-b50f-09debeaf9da7
+        name: raw_input
+        nameErrMsg: ''
+        schema:
+          type: string
+          value:
+            type: ref
+            content:
+              name: AGENT_USER_INPUT
+              id: 06ab1984-0bfc-5aff-8276-cc29c3993033
+              nodeId: node-start::901b2816-75f8-547e-87bb-f84d221a657d
+            contentErrMsg: ''
+        fileType: ''
+      outputs:
+      - id: 54870d03-0b71-5190-81cf-f6ac05969f9f
+        name: context_json
+        nameErrMsg: ''
+        schema:
+          type: string
+          default: ''
+        required: false
+      - id: 50ba2c9f-f64e-5349-8b1f-e21568a3ceaa
+        name: strategy_json
+        nameErrMsg: ''
+        schema:
+          type: string
+          default: ''
+        required: false
+      - id: a06e9ee2-eee7-5cc7-b1bd-620c15a1169c
+        name: student_profile_json
+        nameErrMsg: ''
+        schema:
+          type: string
+          default: ''
+        required: false
+      - id: c6954f8a-9503-58fa-90f5-214bb1677611
+        name: kb_text
+        nameErrMsg: ''
+        schema:
+          type: string
+          default: ''
+        required: false
+      nodeParam:
+        uid: '21880654528'
+        code: |-
+          import json
+
+
+          def _parse_input(raw_input):
+              value = raw_input
+              for _ in range(3):
+                  if isinstance(value, dict):
+                      if "input" in value:
+                          value = value.get("input")
+                          continue
+                      if "AGENT_USER_INPUT" in value:
+                          value = value.get("AGENT_USER_INPUT")
+                          continue
+                      return value
+                  text = str(value or "").strip()
+                  if not text:
+                      return {}
+                  value = json.loads(text, strict=False)
+              if not isinstance(value, dict):
+                  raise ValueError("输入必须是 JSON 对象或 JSON 字符串")
+              return value
+
+
+          def _object(value, name, allow_empty=False):
+              if not isinstance(value, dict) or (not allow_empty and not value):
+                  raise ValueError(name + " 必须是非空对象")
+              return value
+
+
+          def main(raw_input):
+              data = _parse_input(raw_input)
+              if not isinstance(data, dict):
+                  raise ValueError("输入必须是 JSON 对象")
+              context = _object(data.get("context"), "context")
+              strategy = _object(data.get("strategy"), "strategy")
+              profile = _object(data.get("student_profile"), "student_profile", allow_empty=True)
+              kb_text = str(data.get("kb_text", "")).strip()
+              if not kb_text:
+                  raise ValueError("kb_text 不能为空")
+              goal = context.get("learning_goal")
+              if not isinstance(goal, dict):
+                  goal = {}
+              if not str(goal.get("goal_name", "")).strip():
+                  context = dict(context)
+                  context["_learning_goal_missing"] = True
+              return {
+                  "context_json": json.dumps(context, ensure_ascii=False, separators=(",", ":")),
+                  "strategy_json": json.dumps(strategy, ensure_ascii=False, separators=(",", ":")),
+                  "student_profile_json": json.dumps(profile, ensure_ascii=False, separators=(",", ":")),
+                  "kb_text": kb_text,
+              }
+        appId: 6545ca99
+        codeErrMsg: ''
+      icon: https://oss-beijing-m8.openstorage.cn/SparkBotProd/icon/icon-wrapper-question.svg
+      description: 面向开发者提供 Python 代码执行能力。
+      updatable: false
+  - id: ifly-code::d7c6c28b-7a14-57c5-bd38-594dff823333
+    dragging: false
+    selected: false
+    width: 282
+    height: 100
+    position:
+      x: 553.8
+      y: 348.29452054794524
+    positionAbsolute:
+      x: 553.8
+      y: 348.29452054794524
+    type: 代码
+    data:
+      allowInputReference: true
+      allowOutputReference: true
+      label: 知识依据判定
+      labelEdit: false
+      references: [
+        ]
+      status: ''
+      nodeMeta:
+        aliasName: 代码
+        nodeType: 工具
+      inputs:
+      - id: 947112ee-2995-58cf-a080-4495ec145e8e
+        name: context
+        nameErrMsg: ''
+        schema:
+          type: string
+          value:
+            type: ref
+            content:
+              name: context_json
+              id: 54870d03-0b71-5190-81cf-f6ac05969f9f
+              nodeId: ifly-code::0802a666-df88-52ec-84a5-6fe5399fd0b9
+            contentErrMsg: ''
+        fileType: ''
+      - id: 60e092bf-bfa2-58a5-b264-2b8a20e91810
+        name: kb_text
+        nameErrMsg: ''
+        schema:
+          type: string
+          value:
+            type: ref
+            content:
+              name: kb_text
+              id: c6954f8a-9503-58fa-90f5-214bb1677611
+              nodeId: ifly-code::0802a666-df88-52ec-84a5-6fe5399fd0b9
+            contentErrMsg: ''
+        fileType: ''
+      outputs:
+      - id: 98273f4d-41f1-5e80-bb73-5539b963af28
+        name: kb_available
+        nameErrMsg: ''
+        schema:
+          type: boolean
+          default: ''
+        required: false
+      - id: 4e305c8a-f8b0-5028-b610-43abe92bb411
+        name: web_search_query
+        nameErrMsg: ''
+        schema:
+          type: string
+          default: ''
+        required: false
+      nodeParam:
+        uid: '21880654528'
+        code: |
+          import json
+
+
+          def main(context, kb_text):
+              data = json.loads(str(context or "{}"), strict=False)
+              if not isinstance(data, dict):
+                  raise ValueError("context 必须是 JSON 对象")
+              kb = str(kb_text or "").strip()
+              # 后端知识库正文带来源行；弱回退文本带「未提供独立知识库正文」标记。
+              kb_available = bool(kb) and "未提供独立知识库正文" not in kb
+              target = data.get("current_knowledge_point") or data.get("learning_target")
+              if not isinstance(target, dict) or not target:
+                  target = {}
+              evaluation = data.get("validated_evaluation")
+              if isinstance(evaluation, dict):
+                  errors = evaluation.get("error_points")
+                  if isinstance(errors, list) and errors and isinstance(errors[0], dict):
+                      target = errors[0]
+              parts = [
+                  str(target.get("knowledge_point_name") or target.get("knowledge_point_id") or "").strip()
+              ]
+              goal = data.get("learning_goal")
+              if isinstance(goal, dict) and str(goal.get("goal_name", "")).strip():
+                  parts.append(str(goal.get("goal_name")).strip())
+              for key in ("student_evidence", "diagnosis", "root_cause", "expected_behavior", "error_description"):
+                  value = str(target.get(key, "")).strip()
+                  if value:
+                      parts.append(value)
+              query = " ".join(part for part in parts if part)
+              if query:
+                  query += " 原理 规范 标准"
+              return {"kb_available": kb_available, "web_search_query": query}
+        appId: 6545ca99
+        codeErrMsg: ''
+      icon: https://oss-beijing-m8.openstorage.cn/SparkBotProd/icon/icon-wrapper-question.svg
+      description: 面向开发者提供 Python 代码执行能力。
+      updatable: false
+  - id: if-else::bb21d4e8-08cd-551b-94e5-a5da7a4d58ae
+    dragging: false
+    selected: false
+    width: 322
+    height: 126
+    position:
+      x: 1140
+      y: 200
+    positionAbsolute:
+      x: 1140
+      y: 200
+    type: 分支器
+    data:
+      allowInputReference: true
+      allowOutputReference: false
+      label: 知识依据是否可用
+      labelEdit: false
+      references: [
+        ]
+      status: ''
+      nodeMeta:
+        aliasName: 分支器
+        nodeType: 分支器
+      inputs:
+      - id: e779719d-1c33-5519-a817-a528c0fb7f2a
+        name: input
+        nameErrMsg: ''
+        schema:
+          type: boolean
+          value:
+            type: ref
+            content:
+              name: kb_available
+              id: 98273f4d-41f1-5e80-bb73-5539b963af28
+              nodeId: ifly-code::d7c6c28b-7a14-57c5-bd38-594dff823333
+            contentErrMsg: ''
+        fileType: ''
+      - id: 9ebb063b-106a-58da-962f-40fa81cc1b78
+        name: input1
+        nameErrMsg: ''
+        schema:
+          type: boolean
+          value:
+            type: literal
+            content: true
+            contentErrMsg: ''
+        fileType: ''
+      outputs: [
+        ]
+      nodeParam:
+        uid: '21880654528'
+        cases:
+        - level: 1
+          logicalOperator: and
+          id: branch_one_of::190c03d6-a6af-5a0a-8d7d-57efe1ad247d
+          conditions:
+          - leftVarIndex: e779719d-1c33-5519-a817-a528c0fb7f2a
+            rightVarIndex: 9ebb063b-106a-58da-962f-40fa81cc1b78
+            compareOperatorErrMsg: ''
+            id: ''
+            compareOperator: is
+        - level: 999
+          logicalOperator: and
+          id: branch_one_of::d0ba2ff3-5c67-53de-b1d9-06e8d2355929
+          conditions: [
+            ]
+        appId: 6545ca99
+      icon: https://oss-beijing-m8.openstorage.cn/SparkBotProd/icon/icon-wrapper-if-else.svg
+      description: 根据设立的条件，判断选择分支走向
+      updatable: false
+  - id: spark-llm::73f515ec-a1ea-5ed1-9766-57c1fe7067e3
+    dragging: false
+    selected: false
+    width: 362
+    height: 124
+    position:
+      x: 1512.0410958904108
+      y: 123.73424657534244
+    positionAbsolute:
+      x: 1512.0410958904108
+      y: 123.73424657534244
+    type: 大模型
+    data:
+      allowInputReference: true
+      allowOutputReference: true
+      label: 生成学习阶段个性化讲解
+      labelEdit: false
+      references: [
+        ]
+      status: ''
+      nodeMeta:
+        aliasName: 大模型
+        nodeType: 基础节点
+      inputs:
+      - id: d973b6f8-63ad-5805-a9a1-46fa59c00c9c
+        name: context
+        nameErrMsg: ''
+        schema:
+          type: string
+          value:
+            type: ref
+            content:
+              name: context_json
+              id: 54870d03-0b71-5190-81cf-f6ac05969f9f
+              nodeId: ifly-code::0802a666-df88-52ec-84a5-6fe5399fd0b9
+            contentErrMsg: ''
+        fileType: ''
+      - id: ccc2eb13-b95b-5df4-8f04-351d34cd51d9
+        name: strategy
+        nameErrMsg: ''
+        schema:
+          type: string
+          value:
+            type: ref
+            content:
+              name: strategy_json
+              id: 50ba2c9f-f64e-5349-8b1f-e21568a3ceaa
+              nodeId: ifly-code::0802a666-df88-52ec-84a5-6fe5399fd0b9
+            contentErrMsg: ''
+        fileType: ''
+      - id: 5318b819-b6a5-5e18-9916-1291c8d17710
+        name: student_profile
+        nameErrMsg: ''
+        schema:
+          type: string
+          value:
+            type: ref
+            content:
+              name: student_profile_json
+              id: a06e9ee2-eee7-5cc7-b1bd-620c15a1169c
+              nodeId: ifly-code::0802a666-df88-52ec-84a5-6fe5399fd0b9
+            contentErrMsg: ''
+        fileType: ''
+      - id: f1d06a9d-ad32-54ea-9d84-794e9d58f2c3
+        name: kb_text
+        nameErrMsg: ''
+        schema:
+          type: string
+          value:
+            type: ref
+            content:
+              name: kb_text
+              id: c6954f8a-9503-58fa-90f5-214bb1677611
+              nodeId: ifly-code::0802a666-df88-52ec-84a5-6fe5399fd0b9
+            contentErrMsg: ''
+        fileType: ''
+      outputs:
+      - id: 4e3bda31-233c-5fb3-b290-580fb9729413
+        name: output
+        nameErrMsg: ''
+        schema:
+          type: string
+          default: ''
+        required: false
+      nodeParam:
+        topK: 4
+        template: |-
+          学习上下文
+          {{context}}
+
+          本轮策略
+          {{strategy}}
+
+          学生画像
+          {{student_profile}}
+
+          专业知识依据
+          {{kb_text}}
+        enableChatHistoryV2:
+          isEnabled: false
+          rounds: 1
+        auditing: default
+        llmId: 110
+        url: wss://spark-api.xf-yun.com/v4.0/chat
+        uid: '21880654528'
+        patchId: '0'
+        templateErrMsg: ''
+        domain: 4.0Ultra
+        appId: 6545ca99
+        maxTokens: 2048
+        temperature: 0.35
+        systemTemplate: |-
+          你是职业教育个性化学习导师，负责根据学生的学习目标、初次测评结果、学习策略和可核验资料，生成当前知识点的讲解。
+
+          你只能输出一个合法 JSON 对象，不得输出 Markdown 代码块、解释文字或 JSON 以外的内容。
+
+          一、资料来源规则
+
+          1. 专业事实只能来自以下资料：
+             - context.web_evidence_pack.evidence
+             - kb_text
+             - context.web_search_context
+          2. 专业事实来源优先级：
+             - 第一优先级：context.web_evidence_pack.evidence
+             - 第二优先级：context.web_search_context
+             - 第三优先级：kb_text
+          3. context.learning_goal、context.initial_assessment_context、student_profile、strategy 只能用于：
+             - 确定讲解重点
+             - 调整讲解深度
+             - 调整讲解顺序
+             - 选择案例场景
+             - 识别需要重点提醒的误区
+          4. 上述上下文信息不得作为专业知识事实，也不得作为 content_blocks.source。
+          5. 严禁将以下内容作为来源：
+             - context.learning_goal
+             - context.initial_assessment_context
+             - context.student_profile
+             - context.strategy
+             - student_profile
+             - strategy
+             - 任意以 context. 开头的字符串
+             - “系统提示”
+             - “模型生成”
+             - “学习目标”
+             - “初次测评结果”
+          6. 每个专业讲解区块都必须填写 source。
+          7. source 必须能够对应到真实资料：
+             - 联网证据：必须包含对应 evidence 的 title、source 或 url 中至少一项；
+             - kb_text：必须明确标识知识库条目或其来源；
+             - web_search_context：必须包含其中可核验的标题、来源或 URL。
+          8. 找不到可靠资料支撑的内容不得生成，不得根据常识补写，不得编造论文、网页、作者、年份、URL 或结论。
+          9. source 必须是资料来源，不是生成原因，不是学生状态，不是策略名称。
+          10. 如果所有检索结果、论文资料、联网证据和知识库资料合在一起仍不足以形成完整讲解，必须输出 status=knowledge_insufficient。
+          11. 只有个别区块资料不足时，可以保留资料充分的区块，但不得生成资料不足的区块，并在缺失区块位置输出 type=notice 的说明。
+
+          二、初次测评约束
+
+          1. 必须严格依据 context.initial_assessment_context 生成个性化讲解。
+          2. 初次测评结果只能影响重点、深度、顺序和误区提醒。
+          3. 不得把未覆盖的知识点推断为“薄弱”或“已掌握”。
+          4. 不得把学生没有作答过的内容描述为“学生答错”。
+          5. 不得生成新的能力画像、掌握度、分数或诊断结论。
+          6. 如果 context.initial_assessment_context 表示未完成正式初测，只能生成基线性质的说明，不得声称学生存在特定错误。
+          7. 如果当前知识点不在正式初测覆盖范围内，必须明确说明“初次测评未覆盖”，不得伪造个性化结论。
+
+          三、目标与策略约束
+
+          1. 依据 context.learning_goal.goal_name 选择案例语境：
+             - 包含“大赛、竞赛、技能比武”：使用评分点、操作规范和验收标准；
+             - 包含“岗位、运维、取证”：使用岗位任务和故障处理语境；
+             - 其他情况：使用课程实训语境。
+          2. lesson_title 和 lesson_objective 必须围绕当前学习目标。
+          3. strategy_code=alternative_representation 时，必须更换认知通道，不能只改写原句。
+          4. explanation_depth=foundational：
+             - 使用短句；
+             - 一次只解释一个概念；
+             - 增加中间步骤。
+          5. explanation_depth=guided：
+             - 使用“现象、原因、修正、验证”四步法。
+          6. explanation_depth=concise：
+             - 直接说明边界、适用条件和迁移方式。
+          7. procedural_learner 强调操作步骤和状态变化。
+          8. visual_preferred 强调结构关系、空间关系和流程关系。
+          9. example_driven 使用一个完整案例贯穿讲解。
+          10. pace_factor 小于 0.8 时增加中间步骤；
+              pace_factor 大于 1.2 时压缩基础内容并增加拓展。
+          11. 当前知识点命中 misconception_tags 时，必须在常见易错部分进行针对性提醒。
+
+          四、讲解结构
+
+          正常生成时，按照以下结构组织 content_blocks：
+
+          1. connection：为什么先学这一点
+          2. concept：核心概念
+          3. steps：操作步骤
+          4. example：岗位示例
+          5. pitfall：常见易错
+          6. workplace：岗位应用
+          7. check：自查要点
+
+          每个区块必须包含：
+
+          - type
+          - title
+          - content，或 items，或 steps
+          - source
+
+          五、资料不足处理
+
+          当资料不足以形成完整讲解时，输出：
+
+          {
+            "status": "knowledge_insufficient",
+            "workflow_mode": "learning",
+            "lesson_title": "当前知识点资料不足",
+            "lesson_objective": "暂时无法生成可核验的完整讲解",
+            "insufficiency_reason": "说明缺少哪些资料，以及已经检查了哪些来源",
+            "content_blocks": [
+              {
+                "type": "notice",
+                "title": "资料不足说明",
+                "content": "当前检索结果、论文资料和本地知识库不足以形成完整且可核验的讲解，请补充资料后重试。",
+                "source": "检索状态"
+              }
+            ],
+            "actions": ["request_more_sources"],
+            "next_action": "continue_learning",
+            "memory_writeback": {
+              "event_type": "learning_explanation",
+              "knowledge_point_id": "",
+              "strategy_code": "knowledge_insufficient",
+              "explanation_mode": "knowledge_insufficient",
+              "effect": "pending"
+            }
+          }
+
+          六、目标缺失处理
+
+          当 context.learning_goal.goal_name 缺失或为空，或者 context._learning_goal_missing=true 时，输出：
+
+          {
+            "status": "needs_clarification",
+            "workflow_mode": "learning",
+            "clarification_question": "请先设定本次学习目标"
+          }
+
+          七、正常输出格式
+
+          {
+            "status": "ok",
+            "delivery_mode": "first|resume|alternative|example|steps|check",
+            "knowledge_point_summary": "一句话概括当前知识点",
+            "lesson_title": "本节标题",
+            "lesson_objective": "学习目标",
+            "teaching_plan": {
+              "primary_mode": "策略要求的表征方式",
+              "depth": "foundational|guided|concise",
+              "reason": "根据学生资料和初次测评结果说明原因"
+            },
+            "content_blocks": [
+              {
+                "type": "connection",
+                "title": "为什么先学这一点",
+                "content": "...",
+                "source": "可核验资料标题或 URL"
+              },
+              {
+                "type": "concept",
+                "title": "核心概念",
+                "content": "...",
+                "source": "可核验资料标题或 URL"
+              },
+              {
+                "type": "steps",
+                "title": "操作步骤",
+                "content": "...",
+                "items": ["步骤1", "步骤2"],
+                "source": "可核验资料标题或 URL"
+              },
+              {
+                "type": "example",
+                "title": "岗位示例",
+                "content": "...",
+                "source": "可核验资料标题或 URL"
+              },
+              {
+                "type": "pitfall",
+                "title": "常见易错",
+                "content": "...",
+                "source": "可核验资料标题或 URL"
+              },
+              {
+                "type": "workplace",
+                "title": "岗位应用",
+                "content": "...",
+                "source": "可核验资料标题或 URL"
+              },
+              {
+                "type": "check",
+                "title": "自查要点",
+                "content": "...",
+                "source": "可核验资料标题或 URL"
+              }
+            ],
+            "understanding_check": {
+              "question": "理解题",
+              "answer_type": "short_text|choice",
+              "expected_key_points": ["关键点1"]
+            },
+            "actions": [
+              "not_understood",
+              "show_example",
+              "show_steps",
+              "switch_explanation",
+              "request_video",
+              "start_check"
+            ],
+            "next_action": "start_check|continue_learning",
+            "memory_writeback": {
+              "event_type": "learning_explanation",
+              "knowledge_point_id": "知识点ID",
+              "strategy_code": "本轮策略",
+              "explanation_mode": "本轮表征方式",
+              "effect": "pending"
+            }
+          }
+        model: spark
+        serviceId: bm4
+        respFormat: 0
+        llmIdErrMsg: ''
+      retryConfig:
+        shouldRetry: true
+        errorStrategy: 0
+      icon: https://oss-beijing-m8.openstorage.cn/SparkBotProd/icon/icon-wrapper-model.svg
+      description: 根据输入的提示词调用选定的大模型并生成回答。
+      updatable: false
+  - id: ifly-code::7a975061-d768-5860-8de0-57fb3ce6a200
+    dragging: false
+    selected: true
+    width: 260
+    height: 100
+    position:
+      x: 2011.3589041095893
+      y: 127.97123287671232
+    positionAbsolute:
+      x: 2011.3589041095893
+      y: 127.97123287671232
+    type: 代码
+    data:
+      allowInputReference: true
+      allowOutputReference: true
+      label: 校验学习讲解输出
+      labelEdit: false
+      references: [
+        ]
+      status: ''
+      nodeMeta:
+        aliasName: 代码
+        nodeType: 工具
+      inputs:
+      - id: 3dce7871-67ff-5824-ac0f-5bef1e1950d3
+        name: model_output
+        nameErrMsg: ''
+        schema:
+          type: string
+          value:
+            type: ref
+            content:
+              name: output
+              id: 4e3bda31-233c-5fb3-b290-580fb9729413
+              nodeId: spark-llm::73f515ec-a1ea-5ed1-9766-57c1fe7067e3
+            contentErrMsg: ''
+        fileType: ''
+      - id: 9a30ef98-1360-45a4-bedd-c228b15b8455
+        name: context_json
+        nameErrMsg: ''
+        schema:
+          type: string
+          value:
+            type: ref
+            content:
+              name: context_json
+              id: 54870d03-0b71-5190-81cf-f6ac05969f9f
+              nodeId: ifly-code::0802a666-df88-52ec-84a5-6fe5399fd0b9
+            contentErrMsg: ''
+        fileType: ''
+      outputs:
+      - id: 45c69638-777a-5669-a828-e79337d97c14
+        name: final_result_json
+        nameErrMsg: ''
+        schema:
+          type: string
+          default: ''
+        required: false
+      nodeParam:
+        uid: '21880654528'
+        code: |-
+          import json
+          import re
+
+
+          DELIVERY_MODES = {
+              "first",
+              "resume",
+              "alternative",
+              "example",
+              "steps",
+              "check",
+          }
+
+          NEXT_ACTIONS = {
+              "start_check",
+              "continue_learning",
+          }
+
+          DEPTHS = {
+              "foundational",
+              "guided",
+              "concise",
+          }
+
+          BLOCK_TYPES = {
+              "connection",
+              "concept",
+              "steps",
+              "example",
+              "pitfall",
+              "workplace",
+              "check",
+              "notice",
+          }
+
+
+          FORBIDDEN_SOURCE_PREFIXES = (
+              "context.",
+              "student_profile",
+              "strategy",
+              "系统提示",
+              "模型生成",
+              "学习目标",
+              "初次测评结果",
+          )
+
+
+          def _parse_json(value, field_name):
+              if isinstance(value, dict):
+                  return value
+
+              text = str(value or "").strip()
+
+              if not text:
+                  raise ValueError(f"{field_name} 不能为空")
+
+              try:
+                  return json.loads(text, strict=False)
+              except Exception as exc:
+                  raise ValueError(f"{field_name} 不是合法 JSON") from exc
+
+
+          def _clean_model_json(model_output):
+              text = str(model_output or "").strip()
+
+              text = re.sub(
+                  r"^```(?:json)?\s*|\s*```$",
+                  "",
+                  text,
+                  flags=re.IGNORECASE,
+              ).strip()
+
+              start = text.find("{")
+              end = text.rfind("}")
+
+              if start < 0 or end < start:
+                  raise ValueError("大模型输出中未找到 JSON 对象")
+
+              return json.loads(text[start:end + 1], strict=False)
+
+
+          def _normalise_source(value):
+              return re.sub(r"\s+", " ", str(value or "").strip()).lower()
+
+
+          def _extract_evidence_candidates(context):
+              evidence_pack = context.get("web_evidence_pack")
+
+              if not isinstance(evidence_pack, dict):
+                  return []
+
+              evidence_list = evidence_pack.get("evidence", [])
+
+              if not isinstance(evidence_list, list):
+                  return []
+
+              candidates = []
+
+              for evidence in evidence_list:
+                  if not isinstance(evidence, dict):
+                      continue
+
+                  for field in ("title", "source", "url"):
+                      value = _normalise_source(evidence.get(field))
+
+                      if value:
+                          candidates.append(value)
+
+              return list(dict.fromkeys(candidates))
+
+
+          def _validate_source(source, evidence_candidates, block_type):
+              source_text = _normalise_source(source)
+
+              if not source_text:
+                  raise ValueError(
+                      f"content_blocks[{block_type}] 的 source 不能为空"
+                  )
+
+              for forbidden_prefix in FORBIDDEN_SOURCE_PREFIXES:
+                  if source_text.startswith(_normalise_source(forbidden_prefix)):
+                      raise ValueError(
+                          f"content_blocks[{block_type}] 使用了禁止的 source：{source}"
+                      )
+
+              if "initial_assessment_context" in source_text:
+                  raise ValueError(
+                      f"content_blocks[{block_type}] 不得使用初次测评上下文作为来源"
+                  )
+
+              if block_type == "notice":
+                  return
+
+              if not evidence_candidates:
+                  raise ValueError(
+                      f"content_blocks[{block_type}] 没有可核验的联网证据"
+                  )
+
+              matched = any(
+                  candidate in source_text or source_text in candidate
+                  for candidate in evidence_candidates
+              )
+
+              if not matched:
+                  raise ValueError(
+                      f"content_blocks[{block_type}] 的 source 无法对应联网证据：{source}"
+                  )
+
+
+          def _has_block_content(block):
+              content = str(block.get("content", "")).strip()
+
+              if content:
+                  return True
+
+              items = block.get("items")
+              if isinstance(items, list) and any(str(item).strip() for item in items):
+                  return True
+
+              steps = block.get("steps")
+              if isinstance(steps, list) and any(str(step).strip() for step in steps):
+                  return True
+
+              return False
+
+
+          def _validate_notice_result(result):
+              blocks = result.get("content_blocks")
+
+              if not isinstance(blocks, list) or not blocks:
+                  raise ValueError("资料不足结果必须包含 content_blocks")
+
+              for block in blocks:
+                  if not isinstance(block, dict):
+                      raise ValueError("资料不足结果中的 content_blocks 必须是对象")
+
+                  if block.get("type") != "notice":
+                      raise ValueError(
+                          "knowledge_insufficient 只能输出 notice 类型区块"
+                      )
+
+                  if not _has_block_content(block):
+                      raise ValueError("notice 区块不能为空")
+
+                  if not str(block.get("source", "")).strip():
+                      raise ValueError("notice 区块必须包含 source")
+
+
+          def _validate_clarification_result(result):
+              question = str(
+                  result.get("clarification_question", "")
+              ).strip()
+
+              if not question:
+                  raise ValueError(
+                      "needs_clarification 必须提供 clarification_question"
+                  )
+
+
+          def _validate_success_result(result, context):
+              if result.get("delivery_mode") not in DELIVERY_MODES:
+                  raise ValueError("delivery_mode 不在允许枚举中")
+
+              if not str(result.get("lesson_title", "")).strip():
+                  raise ValueError("lesson_title 不能为空")
+
+              if not str(result.get("lesson_objective", "")).strip():
+                  raise ValueError("lesson_objective 不能为空")
+
+              teaching_plan = result.get("teaching_plan")
+
+              if not isinstance(teaching_plan, dict):
+                  raise ValueError("teaching_plan 必须是对象")
+
+              if not str(teaching_plan.get("primary_mode", "")).strip():
+                  raise ValueError("teaching_plan.primary_mode 不能为空")
+
+              if teaching_plan.get("depth") not in DEPTHS:
+                  raise ValueError("teaching_plan.depth 不在允许枚举中")
+
+              blocks = result.get("content_blocks")
+
+              if not isinstance(blocks, list) or not blocks:
+                  raise ValueError("content_blocks 不能为空")
+
+              evidence_candidates = _extract_evidence_candidates(context)
+
+              for block in blocks:
+                  if not isinstance(block, dict):
+                      raise ValueError("content_blocks 每个元素必须是对象")
+
+                  block_type = str(block.get("type", "")).strip()
+
+                  if block_type not in BLOCK_TYPES:
+                      raise ValueError(
+                          f"content_blocks 存在不允许的 type：{block_type}"
+                      )
+
+                  if not _has_block_content(block):
+                      raise ValueError(
+                          f"content_blocks[{block_type}] 必须包含 content、items 或 steps"
+                      )
+
+                  _validate_source(
+                      block.get("source"),
+                      evidence_candidates,
+                      block_type,
+                  )
+
+              understanding_check = result.get("understanding_check")
+
+              if not isinstance(understanding_check, dict):
+                  raise ValueError("understanding_check 必须是对象")
+
+              if not str(
+                  understanding_check.get("question", "")
+              ).strip():
+                  raise ValueError(
+                      "understanding_check.question 不能为空"
+                  )
+
+              if result.get("next_action") not in NEXT_ACTIONS:
+                  raise ValueError("next_action 不在允许枚举中")
+
+
+          def _fallback_result():
+              return {
+                  "status": "system_retryable",
+                  "workflow_mode": "learning",
+                  "lesson_title": "讲解内容生成中",
+                  "lesson_objective": "当前讲解未通过来源校验，请稍后重试",
+                  "teaching_plan": {
+                      "primary_mode": "interactive_document",
+                      "depth": "guided",
+                      "reason": "生成结果未通过确定性来源校验",
+                  },
+                  "content_blocks": [
+                      {
+                          "type": "notice",
+                          "title": "讲解暂不可用",
+                          "content": "当前讲解缺少可核验来源，系统不会使用未经验证的内容。请稍后重试。",
+                          "source": "校验状态",
+                      }
+                  ],
+                  "understanding_check": {
+                      "question": "请稍后重试理解检查",
+                      "answer_type": "short_text",
+                      "expected_key_points": [],
+                  },
+                  "actions": ["continue_learning"],
+                  "next_action": "continue_learning",
+                  "memory_writeback": {
+                      "event_type": "learning_explanation",
+                      "knowledge_point_id": "",
+                      "strategy_code": "generation_fallback",
+                      "explanation_mode": "system_retryable",
+                      "effect": "pending",
+                  },
+              }
+
+
+          def main(model_output, context_json):
+              try:
+                  context = _parse_json(context_json, "context_json")
+                  result = _clean_model_json(model_output)
+
+                  if not isinstance(result, dict):
+                      raise ValueError("大模型输出必须是 JSON 对象")
+
+                  status = result.get("status")
+
+                  if status == "needs_clarification":
+                      _validate_clarification_result(result)
+
+                  elif status == "knowledge_insufficient":
+                      _validate_notice_result(result)
+
+                  elif status == "ok":
+                      _validate_success_result(result, context)
+
+                  else:
+                      raise ValueError(
+                          "status 必须为 ok、needs_clarification 或 knowledge_insufficient"
+                      )
+
+                  result["workflow_mode"] = "learning"
+
+                  return {
+                      "final_result_json": json.dumps(
+                          result,
+                          ensure_ascii=False,
+                          separators=(",", ":"),
+                      )
+                  }
+
+              except Exception:
+                  return {
+                      "final_result_json": json.dumps(
+                          _fallback_result(),
+                          ensure_ascii=False,
+                          separators=(",", ":"),
+                      )
+                  }
+        appId: 6545ca99
+        codeErrMsg: ''
+      icon: https://oss-beijing-m8.openstorage.cn/SparkBotProd/icon/icon-wrapper-question.svg
+      description: 面向开发者提供 Python 代码执行能力。
+      updatable: false
+  - id: ifly-code::00abdd0b-20ae-5849-9460-6713e44d9d26
+    dragging: false
+    selected: false
+    width: 256
+    height: 100
+    position:
+      x: 1520
+      y: 400
+    positionAbsolute:
+      x: 1520
+      y: 400
+    type: 代码
+    data:
+      allowInputReference: true
+      allowOutputReference: true
+      label: 知识回退状态
+      labelEdit: false
+      references: [
+        ]
+      status: ''
+      nodeMeta:
+        aliasName: 代码
+        nodeType: 工具
+      inputs:
+      - id: e94affc9-7686-5cfe-ac33-bb0d46d9b9e9
+        name: web_search_query
+        nameErrMsg: ''
+        schema:
+          type: string
+          value:
+            type: ref
+            content:
+              name: web_search_query
+              id: 4e305c8a-f8b0-5028-b610-43abe92bb411
+              nodeId: ifly-code::d7c6c28b-7a14-57c5-bd38-594dff823333
+            contentErrMsg: ''
+        fileType: ''
+      outputs:
+      - id: cf7faaea-860a-5f22-b95b-49b0b15fbd9f
+        name: final_result_json
+        nameErrMsg: ''
+        schema:
+          type: string
+          default: ''
+        required: false
+      nodeParam:
+        uid: '21880654528'
+        code: |
+          import json
+
+
+          def main(web_search_query):
+              return {
+                  "final_result_json": json.dumps({
+                      "status": "knowledge_unavailable",
+                      "workflow_mode": "learning",
+                      "web_search_query": str(web_search_query or ""),
+                      "knowledge_gap": True,
+                      "user_message": "当前知识点暂时没有可用知识依据，系统已请求联网检索；若仍无结果，请换一个切入点或联系老师补充教学资料。",
+                  }, ensure_ascii=False),
+              }
+        appId: 6545ca99
+        codeErrMsg: ''
+      icon: https://oss-beijing-m8.openstorage.cn/SparkBotProd/icon/icon-wrapper-question.svg
+      description: 面向开发者提供 Python 代码执行能力。
+      updatable: false
+  - id: node-end::9007fd99-c1df-5984-8f41-f23da850448a
+    dragging: false
+    selected: false
+    width: 281
+    height: 74
+    position:
+      x: 2579.880821917808
+      y: 185.8767123287671
+    positionAbsolute:
+      x: 2579.880821917808
+      y: 185.8767123287671
+    type: 结束节点
+    data:
+      allowInputReference: true
+      allowOutputReference: false
+      label: 结束
+      references: [
+        ]
+      status: ''
+      nodeMeta:
+        aliasName: 结束节点
+        nodeType: 基础节点
+      inputs:
+      - id: f2dccbfc-1dcf-5923-9ff0-7761f67a8344
+        name: result_json
+        nameErrMsg: ''
+        schema:
+          type: string
+          value:
+            type: ref
+            content:
+              name: final_result_json
+              id: 45c69638-777a-5669-a828-e79337d97c14
+              nodeId: ifly-code::7a975061-d768-5860-8de0-57fb3ce6a200
+            contentErrMsg: ''
+        fileType: ''
+      - id: 86a503c6-07b7-5844-8c00-fac78df35fe8
+        name: fallback_result_json
+        nameErrMsg: ''
+        schema:
+          type: string
+          value:
+            type: ref
+            content:
+              name: final_result_json
+              id: cf7faaea-860a-5f22-b95b-49b0b15fbd9f
+              nodeId: ifly-code::00abdd0b-20ae-5849-9460-6713e44d9d26
+            contentErrMsg: ''
+        fileType: ''
+      outputs: [
+        ]
+      nodeParam:
+        template: ''
+        streamOutput: true
+        outputMode: 0
+      icon: https://oss-beijing-m8.openstorage.cn/pro-bucket/sparkBot/common/workflow/icon/end-node-icon.png
+      description: 工作流的结束节点，用于输出工作流运行后的最终结果。
+      updatable: false
+  edges:
+  - source: node-start::901b2816-75f8-547e-87bb-f84d221a657d
+    target: ifly-code::0802a666-df88-52ec-84a5-6fe5399fd0b9
+    type: customEdge
+    id: reactflow__edge-node-start::901b2816-75f8-547e-87bb-f84d221a657d-ifly-code::0802a666-df88-52ec-84a5-6fe5399fd0b9
+    markerEnd:
+      color: '#6356EA'
+      type: arrow
+    data:
+      edgeType: curve
+  - source: ifly-code::0802a666-df88-52ec-84a5-6fe5399fd0b9
+    target: ifly-code::d7c6c28b-7a14-57c5-bd38-594dff823333
+    type: customEdge
+    id: reactflow__edge-ifly-code::0802a666-df88-52ec-84a5-6fe5399fd0b9-ifly-code::d7c6c28b-7a14-57c5-bd38-594dff823333
+    markerEnd:
+      color: '#6356EA'
+      type: arrow
+    data:
+      edgeType: curve
+  - source: ifly-code::d7c6c28b-7a14-57c5-bd38-594dff823333
+    target: if-else::bb21d4e8-08cd-551b-94e5-a5da7a4d58ae
+    type: customEdge
+    id: reactflow__edge-ifly-code::d7c6c28b-7a14-57c5-bd38-594dff823333-if-else::bb21d4e8-08cd-551b-94e5-a5da7a4d58ae
+    markerEnd:
+      color: '#6356EA'
+      type: arrow
+    data:
+      edgeType: curve
+  - source: if-else::bb21d4e8-08cd-551b-94e5-a5da7a4d58ae
+    sourceHandle: branch_one_of::190c03d6-a6af-5a0a-8d7d-57efe1ad247d
+    target: spark-llm::73f515ec-a1ea-5ed1-9766-57c1fe7067e3
+    type: customEdge
+    id: reactflow__edge-if-else::bb21d4e8-08cd-551b-94e5-a5da7a4d58aebranch_one_of::190c03d6-a6af-5a0a-8d7d-57efe1ad247d-spark-llm::73f515ec-a1ea-5ed1-9766-57c1fe7067e3
+    markerEnd:
+      color: '#6356EA'
+      type: arrow
+    data:
+      edgeType: curve
+  - source: spark-llm::73f515ec-a1ea-5ed1-9766-57c1fe7067e3
+    target: ifly-code::7a975061-d768-5860-8de0-57fb3ce6a200
+    type: customEdge
+    id: reactflow__edge-spark-llm::73f515ec-a1ea-5ed1-9766-57c1fe7067e3-ifly-code::7a975061-d768-5860-8de0-57fb3ce6a200
+    markerEnd:
+      color: '#6356EA'
+      type: arrow
+    data:
+      edgeType: curve
+  - source: ifly-code::7a975061-d768-5860-8de0-57fb3ce6a200
+    target: node-end::9007fd99-c1df-5984-8f41-f23da850448a
+    type: customEdge
+    id: reactflow__edge-ifly-code::7a975061-d768-5860-8de0-57fb3ce6a200-node-end::9007fd99-c1df-5984-8f41-f23da850448a
+    markerEnd:
+      color: '#6356EA'
+      type: arrow
+    data:
+      edgeType: curve
+  - source: if-else::bb21d4e8-08cd-551b-94e5-a5da7a4d58ae
+    sourceHandle: branch_one_of::d0ba2ff3-5c67-53de-b1d9-06e8d2355929
+    target: ifly-code::00abdd0b-20ae-5849-9460-6713e44d9d26
+    type: customEdge
+    id: reactflow__edge-if-else::bb21d4e8-08cd-551b-94e5-a5da7a4d58aebranch_one_of::d0ba2ff3-5c67-53de-b1d9-06e8d2355929-ifly-code::00abdd0b-20ae-5849-9460-6713e44d9d26
+    markerEnd:
+      color: '#6356EA'
+      type: arrow
+    data:
+      edgeType: curve
+  - source: ifly-code::00abdd0b-20ae-5849-9460-6713e44d9d26
+    target: node-end::9007fd99-c1df-5984-8f41-f23da850448a
+    type: customEdge
+    id: reactflow__edge-ifly-code::00abdd0b-20ae-5849-9460-6713e44d9d26-node-end::9007fd99-c1df-5984-8f41-f23da850448a
+    markerEnd:
+      color: '#6356EA'
+      type: arrow
+    data:
+      edgeType: curve

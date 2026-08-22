@@ -32,6 +32,7 @@ class AgentProjectApiTests(unittest.TestCase):
             request_style="workflow_v1",
             request_timeout=5,
             seed_demo=False,
+            knowledge_retrieval_enabled=False,
         )
         self.server = create_server(settings)
         self.thread = threading.Thread(target=self.server.serve_forever, daemon=True)
@@ -190,6 +191,16 @@ class AgentProjectApiTests(unittest.TestCase):
             )
         self.assertEqual(context.exception.code, 422)
 
+    def set_zero_foundation_intake(self, project_id):
+        return self.request_json(
+            "POST",
+            f"/api/projects/{project_id}/assessments/intake",
+            {
+                "student_id": self.student_id,
+                "self_reported_level": "zero_foundation",
+                "claimed_knowledge_point_ids": [],
+            },
+        )
     def test_create_project_matches_graph_goal(self):
         result = self.create_project("我想系统掌握 Java 面向对象编程")
         self.assertEqual(result["status"], "ok")
@@ -609,7 +620,7 @@ class AgentProjectApiTests(unittest.TestCase):
         )
         self.assertEqual(started["stakes"], "low")
         self.assertEqual(started["provider"], "wf04_api")
-        self.assertEqual(len(started["questions"]), 6)
+        self.assertEqual(len(started["questions"]), 12)
         self.assertEqual(
             {question["question_type"] for question in started["questions"]},
             {"choice", "multiple_choice", "judgment", "fill_blank", "short_answer", "practical"},
@@ -682,6 +693,120 @@ class AgentProjectApiTests(unittest.TestCase):
         with self.assertRaisesRegex(Exception, "通用学习行为题"):
             LearningApplication._wf04_question_candidate(request, result)
 
+    def test_wf04_gate_allows_candidate_point_question_without_point_name(self):
+        # 候选知识点名称是"学习XX"式过程性表述（如 KN-CUSTOM-* 路径生成），
+        # 不是技术术语；WF04 按知识上下文出题时题干无法也不应出现该名称。
+        # 门禁应放行此类题目，改由核心概念关联检查兜底。
+        request = {
+            "action": "generate_question", "student_id": self.student_id,
+            "project_id": "PROJ-CANDIDATE", "task_instance_id": "ASSESSMENT-CANDIDATE-1",
+            "request_id": "REQ-CANDIDATE", "knowledge_point": {
+                "knowledge_point_id": "KN-CUSTOM-ED86A7914206",
+                "knowledge_point_name": "学习云计算学习成果与评价规则",
+            },
+            "requested_question_type": "choice",
+            "knowledge_context": {
+                "core_concepts": ["Java", "new"],
+                "source_status": "candidate",
+            },
+        }
+        result = {
+            "schema_version": "ZHIXING_WF04_RESULT.v1", "workflow_mode": "wf04_training_evaluation",
+            "status": "ok", "action": "generate_question", "student_id": self.student_id,
+            "project_id": "PROJ-CANDIDATE", "task_instance_id": "ASSESSMENT-CANDIDATE-1",
+            "request_id": "REQ-CANDIDATE", "host_write_allowed": True,
+            "question_spec": {
+                "question_template_id": "TPL-CANDIDATE", "knowledge_point_id": "KN-CUSTOM-ED86A7914206",
+                "question_type": "choice", "title": "Java 类与对象创建规则",
+                "prompt": "在 Java 中，下列关于类与对象创建的说法，哪一项是正确的？",
+                "expected_answer": "b",
+                "reference_answer": "在 Java 中，new 关键字用于调用构造器创建类的实例。",
+            },
+            "public_question": {
+                "question_type": "choice", "title": "Java 类与对象创建规则",
+                "prompt": "在 Java 中，下列关于类与对象创建的说法，哪一项是正确的？",
+                "options": {
+                    "a": "使用 class 关键字创建对象实例",
+                    "b": "使用 new 关键字创建类的实例",
+                    "c": "对象是程序的基本组织单位",
+                },
+            },
+        }
+        question = LearningApplication._wf04_question_candidate(request, result)
+        self.assertEqual(question["knowledge_point_id"], "KN-CUSTOM-ED86A7914206")
+
+    def test_wf04_gate_rejects_candidate_question_from_another_goal_domain(self):
+        request = {
+            "action": "generate_question", "student_id": self.student_id,
+            "project_id": "PROJ-CLOUD", "task_instance_id": "ASSESSMENT-CLOUD-1",
+            "request_id": "REQ-CLOUD", "knowledge_point": {
+                "knowledge_point_id": "KN-CUSTOM-CLOUD",
+                "knowledge_point_name": "学习云计算关键对象与专业词汇",
+            },
+            "requested_question_type": "choice",
+            "knowledge_context": {
+                "source_status": "candidate",
+                "goal_name": "学习云计算",
+                "goal_anchor_terms": ["云计算"],
+                "core_concepts": ["云计算"],
+            },
+        }
+        result = {
+            "schema_version": "ZHIXING_WF04_RESULT.v1", "workflow_mode": "wf04_training_evaluation",
+            "status": "ok", "action": "generate_question", "student_id": self.student_id,
+            "project_id": "PROJ-CLOUD", "task_instance_id": "ASSESSMENT-CLOUD-1",
+            "request_id": "REQ-CLOUD", "host_write_allowed": True,
+            "question_spec": {
+                "question_template_id": "TPL-CLOUD", "knowledge_point_id": "KN-CUSTOM-CLOUD",
+                "question_type": "choice", "title": "Java 类与对象创建规则",
+                "prompt": "在 Java 中，下列关于类与对象创建的说法，哪一项是正确的？",
+                "expected_answer": "b", "reference_answer": "Java 中使用 new 创建类的实例。",
+            },
+            "public_question": {
+                "question_type": "choice", "title": "Java 类与对象创建规则",
+                "prompt": "在 Java 中，下列关于类与对象创建的说法，哪一项是正确的？",
+                "options": {"a": "class", "b": "new", "c": "构造器"},
+            },
+        }
+        with self.assertRaisesRegex(Exception, "未声明的技术语境"):
+            LearningApplication._wf04_question_candidate(request, result)
+
+    def test_wf04_gate_still_rejects_validated_point_question_without_point_name(self):
+        # 正式（validated）知识点仍必须保证题干出现可验证的知识点语境，
+        # 候选知识点放宽不影响正式知识点的门禁强度。
+        request = {
+            "action": "generate_question", "student_id": self.student_id,
+            "project_id": "PROJ-VALIDATED", "task_instance_id": "ASSESSMENT-VALIDATED-1",
+            "request_id": "REQ-VALIDATED", "knowledge_point": {
+                "knowledge_point_id": "KP-HTML-STRUCTURE", "knowledge_point_name": "HTML 页面结构",
+            },
+            "requested_question_type": "choice",
+            "knowledge_context": {
+                "core_concepts": ["header"],
+                "source_status": "validated",
+            },
+        }
+        result = {
+            "schema_version": "ZHIXING_WF04_RESULT.v1", "workflow_mode": "wf04_training_evaluation",
+            "status": "ok", "action": "generate_question", "student_id": self.student_id,
+            "project_id": "PROJ-VALIDATED", "task_instance_id": "ASSESSMENT-VALIDATED-1",
+            "request_id": "REQ-VALIDATED", "host_write_allowed": True,
+            "question_spec": {
+                "question_template_id": "TPL-VALIDATED", "knowledge_point_id": "KP-HTML-STRUCTURE",
+                "question_type": "choice", "title": "学习重点",
+                "prompt": "下列哪种做法更符合本阶段要求？",
+                "expected_answer": "a",
+                "reference_answer": "应按要求完成练习。",
+            },
+            "public_question": {
+                "question_type": "choice", "title": "学习重点",
+                "prompt": "下列哪种做法更符合本阶段要求？",
+                "options": {"a": "完成练习", "b": "浏览资料", "c": "记录笔记"},
+            },
+        }
+        with self.assertRaisesRegex(Exception, "题干未出现可验证的目标知识点语境"):
+            LearningApplication._wf04_question_candidate(request, result)
+
     def test_wf04_quality_gate_requires_core_concept_in_question_and_answer(self):
         request = {
             "action": "generate_question", "student_id": self.student_id,
@@ -743,6 +868,52 @@ class AgentProjectApiTests(unittest.TestCase):
         self.assertEqual(len(calls), 2)
         self.assertIn("header", question["prompt"])
         self.assertTrue(calls[1]["task_contract"]["revision_feedback"])
+
+    def test_wf04_generation_gives_explicit_type_instruction_after_remote_type_error(self):
+        # 远程工作流报告 E_MODEL_QUESTION_TYPE_INVALID 后，重试请求必须携带
+        # 明确题型指令，否则模型会反复输出协议未定义题型导致 3 次必败。
+        application = self.server.RequestHandlerClass.application
+        request = {
+            "schema_version": "ZHIXING_WF04_REQUEST.v1", "request_id": "REQ-TYPE-RETRY",
+            "action": "generate_question", "student_id": self.student_id,
+            "project_id": "PROJ-TYPE-RETRY", "task_instance_id": "ASSESSMENT-TYPE-RETRY-1",
+            "knowledge_point": {"knowledge_point_id": "KP-HTML", "knowledge_point_name": "HTML 页面结构"},
+            "requested_question_type": "choice", "task_contract": {},
+            "knowledge_context": {"core_concepts": ["header"]},
+        }
+        original = application.gateway.invoke_wf04_workflow
+        calls = []
+
+        def generate_with_type_errors(payload):
+            calls.append(payload)
+            if len(calls) <= 2:
+                return {
+                    "schema_version": "ZHIXING_WF04_RESULT.v1",
+                    "workflow_mode": "wf04_training_evaluation",
+                    "status": "error", "action": "generate_question",
+                    "request_id": "REQ-TYPE-RETRY", "student_id": self.student_id,
+                    "project_id": "PROJ-TYPE-RETRY", "task_instance_id": "ASSESSMENT-TYPE-RETRY-1",
+                    "error": {
+                        "code": "E_MODEL_QUESTION_TYPE_INVALID",
+                        "message": "出题模型返回了协议未定义的 question_type",
+                        "retryable": True,
+                    },
+                    "host_write_allowed": False,
+                }
+            return original(payload)
+
+        application.gateway.invoke_wf04_workflow = generate_with_type_errors
+        try:
+            question, attempts = application._generate_wf04_question_with_revisions(request)
+        finally:
+            application.gateway.invoke_wf04_workflow = original
+        self.assertEqual(attempts, 3)
+        self.assertEqual(len(calls), 3)
+        for call in calls[1:]:
+            instruction = call["task_contract"].get("revision_instruction", "")
+            self.assertIn("question_spec.question_type", instruction)
+            self.assertIn("必须使用 choice", instruction)
+            self.assertIn("不得使用 code", instruction)
 
     def test_wf04_gateway_extracts_business_json_from_choice_delta_content(self):
         business = {
@@ -1122,11 +1293,11 @@ class AgentProjectApiTests(unittest.TestCase):
         self.assertEqual(
             [payload["requested_question_type"] for payload in calls],
             [
-                "choice",
-                "multiple_choice",
-                "judgment",
-                "fill_blank",
-                "short_answer",
+                "choice", "choice", "choice",
+                "multiple_choice", "multiple_choice",
+                "judgment", "judgment",
+                "fill_blank", "fill_blank",
+                "short_answer", "short_answer",
                 "practical",
             ],
         )
@@ -1424,6 +1595,77 @@ class AgentProjectApiTests(unittest.TestCase):
                 for node in portrait["knowledge_mastery"]["nodes"]
             )
         )
+
+    def test_project_lessons_wait_for_formal_initial_assessment(self):
+        created = self.create_project("我想系统掌握 Java 面向对象编程")
+        project_id = created["project"]["project_id"]
+        detail = self.request_json(
+            "GET", f"/api/projects/{project_id}?student_id={self.student_id}"
+        )["project"]
+        first = detail["learning_path"]["items"][0]
+        self.assertEqual(first["lesson_generation_status"], "queued")
+
+        waiting = self.request_json(
+            "POST",
+            f"/api/projects/{project_id}/explain",
+            {
+                "student_id": self.student_id,
+                "knowledge_point_id": first["knowledge_point_id"],
+            },
+        )
+        self.assertEqual(waiting["status"], "preparing")
+        self.assertEqual(
+            waiting["generation_status"], "awaiting_initial_assessment"
+        )
+
+        self.request_json(
+            "POST",
+            f"/api/projects/{project_id}/assessments/intake",
+            {
+                "student_id": self.student_id,
+                "self_reported_level": "experienced",
+                "claimed_knowledge_point_ids": [first["knowledge_point_id"]],
+            },
+        )
+        started = self.request_json(
+            "POST",
+            f"/api/projects/{project_id}/assessments/start",
+            {
+                "student_id": self.student_id,
+                "assessment_type": "initial_diagnostic",
+            },
+        )
+        application = self.server.RequestHandlerClass.application
+        session = application.store.get_project(project_id)["state"]["assessment_session"]
+        for question in session["questions"]:
+            completed = self.request_json(
+                "POST",
+                f"/api/projects/{project_id}/assessments/answer",
+                {
+                    "student_id": self.student_id,
+                    "assessment_id": started["assessment_id"],
+                    "answer": question["answer"],
+                },
+            )
+        self.assertEqual(completed["status"], "completed")
+        lesson = self.request_json(
+            "POST",
+            f"/api/projects/{project_id}/explain",
+            {
+                "student_id": self.student_id,
+                "knowledge_point_id": first["knowledge_point_id"],
+            },
+        )
+        self.assertEqual(lesson["status"], "ok")
+        assessment_context = lesson["initial_assessment_context"]
+        self.assertEqual(
+            assessment_context["basis"], "formal_initial_assessment"
+        )
+        self.assertEqual(assessment_context["assessment_id"], started["assessment_id"])
+        self.assertEqual(assessment_context["coverage_status"], "assessed")
+        self.assertGreater(assessment_context["performance"]["correct_count"], 0)
+        self.assertTrue(assessment_context["evidence"]["source_event_ids"])
+        self.assertNotIn("self_reported_level", assessment_context)
 
     def test_initial_intake_prioritizes_claimed_points_and_creates_locked_baseline(self):
         created = self.create_project("我想系统掌握 Java 面向对象编程")
@@ -1725,6 +1967,7 @@ class AgentProjectApiTests(unittest.TestCase):
     def test_project_explain_returns_teaching_package(self):
         created = self.create_project("完成 Java 面向对象成绩管理实训")
         project_id = created["project"]["project_id"]
+        self.set_zero_foundation_intake(project_id)
         detail = self.request_json(
             "GET", f"/api/projects/{project_id}?student_id={self.student_id}"
         )["project"]
@@ -1743,21 +1986,21 @@ class AgentProjectApiTests(unittest.TestCase):
         self.assertEqual(explanation["knowledge_point_id"], first["knowledge_point_id"])
         self.assertTrue(explanation["generated_with_path"])
 
-    def test_project_creation_pregenerates_every_lesson_before_click(self):
+    def test_candidate_project_does_not_pregenerate_lessons_before_assessment(self):
         project = self.create_project("六周内掌握 Python 数据分析并完成销售数据看板")["project"]
         detail = self.request_json(
             "GET", f"/api/projects/{project['project_id']}?student_id={self.student_id}"
         )["project"]
         items = detail["learning_path"]["items"]
         self.assertGreaterEqual(len(items), 3)
-        self.assertTrue(all(item["lesson_generation_status"] == "ready" for item in items))
+        self.assertTrue(all(item["lesson_generation_status"] == "queued" for item in items))
         application = self.server.RequestHandlerClass.application
         for item in items:
             cached = application.store.get_project_lesson(
                 project["project_id"], self.student_id, item["knowledge_point_id"]
             )
-            self.assertEqual(cached["status"], "ready")
-            self.assertTrue(cached["lesson"]["content_blocks"])
+            self.assertEqual(cached["status"], "queued")
+            self.assertEqual(cached["lesson"], {})
 
     def test_reading_project_does_not_sync_initialize_lessons(self):
         project = self.create_project(
@@ -1802,7 +2045,7 @@ class AgentProjectApiTests(unittest.TestCase):
         self.assertEqual(detail["learning_path"]["candidate_schema_version"], 1)
         self.assertTrue(detail["learning_path"]["items"])
 
-    def test_clicking_ready_lesson_only_reads_pregenerated_cache(self):
+    def test_clicking_unprepared_candidate_lesson_does_not_generate(self):
         project = self.create_project("六周内掌握 Python 数据分析并完成销售数据看板")["project"]
         detail = self.request_json(
             "GET", f"/api/projects/{project['project_id']}?student_id={self.student_id}"
@@ -1824,8 +2067,10 @@ class AgentProjectApiTests(unittest.TestCase):
             )
         finally:
             application._generate_project_lesson = original
-        self.assertEqual(explanation["status"], "ok")
-        self.assertTrue(explanation["generated_with_path"])
+        self.assertEqual(explanation["status"], "preparing")
+        self.assertEqual(
+            explanation["generation_status"], "awaiting_initial_assessment"
+        )
 
     def test_video_candidates_filter_relevance_then_sort_by_play_count(self):
         application = self.server.RequestHandlerClass.application
@@ -1962,7 +2207,7 @@ class AgentProjectApiTests(unittest.TestCase):
             "王者荣耀 HTML 活动页", "HTML 页面结构 教学 教程"
         ))
 
-    def test_custom_goal_explain_uses_labeled_candidate_fallback(self):
+    def test_custom_goal_explain_waits_for_formal_assessment(self):
         project = self.create_project("六周内掌握 Python 数据分析并完成销售数据看板")["project"]
         detail = self.request_json(
             "GET", f"/api/projects/{project['project_id']}?student_id={self.student_id}"
@@ -1976,14 +2221,12 @@ class AgentProjectApiTests(unittest.TestCase):
                 "knowledge_point_id": first["knowledge_point_id"],
             },
         )
-        self.assertEqual(explanation["status"], "ok")
-        self.assertEqual(explanation["source_status"], "candidate_unverified")
-        self.assertIn("Python", explanation["lesson_title"])
-        content = json.dumps(explanation["content_blocks"], ensure_ascii=False)
-        self.assertIn("待权威来源复核", content)
-        self.assertNotIn("Java 封装", content)
+        self.assertEqual(explanation["status"], "preparing")
+        self.assertEqual(
+            explanation["generation_status"], "awaiting_initial_assessment"
+        )
 
-    def test_custom_goal_remote_explain_returns_ai_markdown_body(self):
+    def test_custom_goal_remote_explain_waits_for_formal_assessment(self):
         gateway = self.server.RequestHandlerClass.application.gateway
         gateway.settings = Settings(
             **{**gateway.settings.__dict__, "xingchen_mode": "remote"}
@@ -2006,15 +2249,6 @@ class AgentProjectApiTests(unittest.TestCase):
                 "GET", f"/api/projects/{project['project_id']}?student_id={self.student_id}"
             )["project"]
             first = detail["learning_path"]["items"][0]
-            application = self.server.RequestHandlerClass.application
-            deadline = time.time() + 5
-            while time.time() < deadline:
-                cached = application.store.get_project_lesson(
-                    project["project_id"], self.student_id, first["knowledge_point_id"]
-                )
-                if cached and cached["status"] == "ready":
-                    break
-                time.sleep(0.02)
             explanation = self.request_json(
                 "POST",
                 f"/api/projects/{project['project_id']}/explain",
@@ -2026,17 +2260,12 @@ class AgentProjectApiTests(unittest.TestCase):
         finally:
             gateway.invoke_chat_workflow = original_invoke
 
-        self.assertEqual(explanation["source_status"], "candidate_unverified")
-        self.assertTrue(explanation["ai_generated"])
-        self.assertEqual(explanation["workflow_mode"], "candidate_ai_generation")
-        knowledge_block = next(
-            block for block in explanation["content_blocks"]
-            if block["type"] == "concept"
+        self.assertEqual(explanation["status"], "preparing")
+        self.assertEqual(
+            explanation["generation_status"], "awaiting_initial_assessment"
         )
-        self.assertIn("```python", knowledge_block["markdown"])
-        self.assertIn("AI 生成候选内容", knowledge_block["source"])
 
-    def test_custom_goal_short_remote_explain_falls_back_honestly(self):
+    def test_custom_goal_short_remote_explain_waits_for_formal_assessment(self):
         gateway = self.server.RequestHandlerClass.application.gateway
         gateway.settings = Settings(
             **{**gateway.settings.__dict__, "xingchen_mode": "remote"}
@@ -2049,15 +2278,6 @@ class AgentProjectApiTests(unittest.TestCase):
                 "GET", f"/api/projects/{project['project_id']}?student_id={self.student_id}"
             )["project"]
             first = detail["learning_path"]["items"][0]
-            application = self.server.RequestHandlerClass.application
-            deadline = time.time() + 5
-            while time.time() < deadline:
-                cached = application.store.get_project_lesson(
-                    project["project_id"], self.student_id, first["knowledge_point_id"]
-                )
-                if cached and cached["status"] == "ready":
-                    break
-                time.sleep(0.02)
             explanation = self.request_json(
                 "POST",
                 f"/api/projects/{project['project_id']}/explain",
@@ -2069,9 +2289,10 @@ class AgentProjectApiTests(unittest.TestCase):
         finally:
             gateway.invoke_chat_workflow = original_invoke
 
-        self.assertTrue(explanation["fallback_used"])
-        self.assertIn("仅展示导学框架", explanation["source_notice"])
-        self.assertEqual(explanation["source_status"], "candidate_unverified")
+        self.assertEqual(explanation["status"], "preparing")
+        self.assertEqual(
+            explanation["generation_status"], "awaiting_initial_assessment"
+        )
 
     def test_project_explain_unknown_knowledge_point(self):
         created = self.create_project("完成 Java 面向对象成绩管理实训")
@@ -2415,6 +2636,48 @@ class AgentProjectApiTests(unittest.TestCase):
         self.assertIn("Java 封装", captured["message"])
         self.assertNotIn("外部记忆", result["answer"])
 
+    def test_remote_chat_workflow_receives_learning_material_flag(self):
+        application = self.server.RequestHandlerClass.application
+        gateway = application.gateway
+        original_settings = gateway.settings
+        original_invoke = gateway.invoke_chat_workflow
+        captured = {}
+        gateway.settings = Settings(
+            **{
+                **original_settings.__dict__,
+                "xingchen_mode": "remote",
+                "chat_flow_id": "chat-flow-id",
+                "api_key": "test-key",
+                "api_secret": "test-secret",
+                "api_url": "https://example.invalid/workflow",
+            }
+        )
+
+        def invoke_chat(payload):
+            captured.update(payload)
+            return {"status": "ok", "answer": "基于学习资料的回答。"}
+
+        gateway.invoke_chat_workflow = invoke_chat
+        try:
+            result = self.request_json(
+                "POST",
+                "/api/chat",
+                {
+                    "student_id": self.student_id,
+                    "session_id": "remote-material-workflow",
+                    "message": "请根据学习资料说明 Java 封装的作用",
+                    "use_learning_materials": True,
+                    "allow_web_search": False,
+                },
+            )
+        finally:
+            gateway.invoke_chat_workflow = original_invoke
+            gateway.settings = original_settings
+
+        self.assertEqual(result["status"], "ok")
+        self.assertEqual(result["answer"], "基于学习资料的回答。")
+        self.assertTrue(captured["use_learning_materials"])
+
     def test_agent_turn_clarifies_unknown_intent(self):
         result = self.agent_turn("随便来点")
         self.assertEqual(result["status"], "needs_clarification")
@@ -2447,7 +2710,10 @@ class AgentProjectApiTests(unittest.TestCase):
         result = self.agent_turn("开始学习类的定义与对象创建", project["project_id"])
         self.assertEqual(result["action"], "open_lesson")
         self.assertEqual(result["artifact"]["type"], "lesson")
-        self.assertTrue(result["artifact"]["data"]["content_blocks"])
+        self.assertEqual(
+            result["artifact"]["data"]["generation_status"],
+            "awaiting_initial_assessment",
+        )
 
     def test_project_lesson_falls_back_when_workflow_fails(self):
         application = self.server.RequestHandlerClass.application
@@ -2459,6 +2725,7 @@ class AgentProjectApiTests(unittest.TestCase):
         application.gateway.invoke_learning_workflow = fail_workflow
         try:
             project = self.agent_turn("我想系统掌握 Java 面向对象编程")["project"]
+            self.set_zero_foundation_intake(project["project_id"])
             detail = self.request_json(
                 "GET", f"/api/projects/{project['project_id']}?student_id={self.student_id}"
             )["project"]
@@ -2525,6 +2792,7 @@ class AgentProjectApiTests(unittest.TestCase):
     def test_project_notes_are_scoped_editable_and_deletable(self):
         first = self.agent_turn("我想系统掌握 Java 面向对象编程")["project"]
         second = self.agent_turn("六周内掌握 Python 数据分析并完成销售数据看板")["project"]
+        self.set_zero_foundation_intake(first["project_id"])
         detail = self.request_json(
             "GET", f"/api/projects/{first['project_id']}?student_id={self.student_id}"
         )["project"]
@@ -2640,6 +2908,7 @@ class AgentProjectApiTests(unittest.TestCase):
         first = self.agent_turn("我想系统掌握 Java 面向对象编程")["project"]
         second = self.agent_turn("六周内掌握 Python 数据分析并完成销售数据看板")["project"]
         project_id = first["project_id"]
+        self.set_zero_foundation_intake(project_id)
         detail = self.request_json(
             "GET", f"/api/projects/{project_id}?student_id={self.student_id}"
         )["project"]
