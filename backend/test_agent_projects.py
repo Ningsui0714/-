@@ -177,6 +177,56 @@ class AgentProjectApiTests(unittest.TestCase):
             "https://task.example/api/downstream-feedback",
         )
 
+    def test_task_knowledge_entry_opens_personalized_learning_project(self):
+        handoff = self.learning_task_handoff()
+        focus = handoff["focus"]
+        task_context = handoff["task_context"]
+        task_card_id = handoff["source"]["task_card_id"]
+        bundle = {
+            "schema_version": "learning-task-conversion-integration-bundle-v1",
+            "task_card_id": task_card_id,
+            "verification_status": "validated",
+            "task": {
+                "schema_version": "learning-task-to-personalized-learning-v1",
+                "work_task": {
+                    **task_context,
+                    "task_steps": focus["source_steps"],
+                    "knowledge_points": [focus["knowledge_point"]],
+                    "skill_points": focus["strongly_related_skills"],
+                },
+            },
+            "strong_relationships": focus["relationships"],
+            "artifacts": {
+                "personalized_learning_json_url": "https://example.test/handoff.json",
+            },
+        }
+        application = self.server.RequestHandlerClass.application
+        original_loader = application._learning_task_bundle
+        application._learning_task_bundle = lambda requested_id: (
+            bundle if requested_id == task_card_id else {}
+        )
+        try:
+            result = self.request_json(
+                "POST",
+                (
+                    "/api/integrations/learning-task-conversion/tasks/"
+                    f"{task_card_id}/knowledge/KP-UEFI-BOOT/"
+                    "personalized-learning-entry"
+                ),
+                {"student_id": self.student_id},
+            )
+        finally:
+            application._learning_task_bundle = original_loader
+
+        self.assertEqual(result["status"], "ok")
+        self.assertTrue(result["created"])
+        self.assertEqual(result["knowledge_point_id"], "KP-UEFI-BOOT")
+        self.assertEqual(result["knowledge_point_name"], "UEFI 启动模式与启动顺序")
+        projects = self.request_json(
+            "GET", f"/api/projects?student_id={self.student_id}"
+        )["projects"]
+        self.assertTrue(any(item["project_id"] == result["project_id"] for item in projects))
+
     def test_import_learning_task_handoff_rejects_unknown_relationship_step(self):
         import urllib.error
 

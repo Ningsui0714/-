@@ -5864,6 +5864,241 @@ class LearningApplication:
             raise ApiError(502, "TASK_ARTIFACT_INVALID", "任务网页响应不符合要求")
         return body
 
+    def _learning_task_bundle(self, task_card_id: str) -> dict[str, Any]:
+        """Read the server-persisted integration bundle for one generated task."""
+        if not re.fullmatch(r"[A-Za-z0-9_-]{1,100}", task_card_id):
+            raise ApiError(422, "INVALID_TASK_CARD_ID", "学习型任务标识不合法")
+        base_url = self.settings.learning_task_conversion_artifact_base_url
+        parsed = urlparse(base_url)
+        if parsed.scheme not in {"http", "https"} or not parsed.netloc:
+            raise ApiError(503, "TASK_BUNDLE_NOT_CONFIGURED", "任务交接服务尚未配置")
+        request = urllib.request.Request(
+            f"{base_url}/{quote_plus(task_card_id)}/bundle",
+            headers={"Accept": "application/json"},
+            method="GET",
+        )
+        try:
+            with urllib.request.urlopen(
+                request, timeout=self.settings.learning_task_conversion_timeout
+            ) as response:
+                body = response.read(2_000_001)
+        except urllib.error.HTTPError as error:
+            raise ApiError(
+                502,
+                "TASK_BUNDLE_UPSTREAM_ERROR",
+                f"任务交接服务返回 HTTP {error.code}",
+            ) from error
+        except (urllib.error.URLError, TimeoutError, OSError) as error:
+            reason = getattr(error, "reason", error)
+            raise ApiError(503, "TASK_BUNDLE_UNAVAILABLE", f"任务交接服务不可用：{reason}") from error
+        if len(body) > 2_000_000:
+            raise ApiError(502, "TASK_BUNDLE_INVALID", "任务交接数据过大")
+        try:
+            bundle = json.loads(body.decode("utf-8"))
+        except (UnicodeDecodeError, json.JSONDecodeError) as error:
+            raise ApiError(502, "TASK_BUNDLE_INVALID", "任务交接服务返回了无效数据") from error
+        if (
+            not isinstance(bundle, dict)
+            or bundle.get("schema_version") != "learning-task-conversion-integration-bundle-v1"
+            or str(bundle.get("task_card_id") or "") != task_card_id
+        ):
+            raise ApiError(502, "TASK_BUNDLE_INVALID", "任务交接契约版本或任务标识不正确")
+        return bundle
+
+    @staticmethod
+    def _learning_task_knowledge_handoff(
+        bundle: dict[str, Any], task_card_id: str, knowledge_id: str
+    ) -> dict[str, Any]:
+        task = as_dict(bundle.get("task"))
+        work_task = as_dict(task.get("work_task"))
+        knowledge = next(
+            (
+                dict(item)
+                for item in as_list(work_task.get("knowledge_points"))
+                if isinstance(item, dict)
+                and str(item.get("knowledge_id") or "") == knowledge_id
+            ),
+            None,
+        )
+        if not work_task or knowledge is None:
+            raise ApiError(404, "KNOWLEDGE_NOT_FOUND", "当前学习型任务中不存在该知识点")
+
+        source_steps = [
+            dict(step)
+            for step in as_list(work_task.get("task_steps"))
+            if isinstance(step, dict)
+            and knowledge_id in {
+                str(value) for value in as_list(step.get("knowledge_point_ids"))
+            }
+        ]
+        if not source_steps:
+            raise ApiError(422, "KNOWLEDGE_STEP_MAPPING_REQUIRED", "该知识点没有可追溯的任务步骤映射")
+
+        skill_ids = {
+            str(skill_id)
+            for step in source_steps
+            for skill_id in as_list(step.get("skill_point_ids"))
+            if str(skill_id).strip()
+        }
+        skill_ids.update(
+            str(skill_id)
+            for skill_id in as_list(knowledge.get("related_skill_ids"))
+            if str(skill_id).strip()
+        )
+        related_skills = [
+            dict(skill)
+            for skill in as_list(work_task.get("skill_points"))
+            if isinstance(skill, dict)
+            and str(skill.get("skill_id") or "") in skill_ids
+        ]
+
+        explicit_relations = [
+            dict(relation)
+            for relation in as_list(bundle.get("strong_relationships"))
+            if isinstance(relation, dict)
+            and str(relation.get("knowledge_id") or "") == knowledge_id
+        ]
+        relationships: list[dict[str, Any]] = []
+        for relation in explicit_relations:
+            requested_steps = {
+                str(value).strip()
+                for value in as_list(relation.get("applies_to_steps"))
+                if str(value).strip()
+            }
+            explicit_step_id = str(relation.get("step_id") or "").strip()
+            matched_steps = [
+                step
+                for step in source_steps
+                if (
+                    (explicit_step_id and str(step.get("step_id") or "") == explicit_step_id)
+                    or bool(
+                        requested_steps.intersection({
+                            str(step.get("step_id") or "").strip(),
+                            str(step.get("name") or "").strip(),
+                            str(step.get("title") or "").strip(),
+                            str(step.get("action") or "").strip(),
+                        })
+                    )
+                )
+            ]
+            if not matched_steps and len(source_steps) == 1:
+                matched_steps = source_steps
+            relation_skill_ids = [
+                str(value).strip()
+                for value in as_list(relation.get("skill_ids"))
+                if str(value).strip()
+            ]
+            if relation.get("skill_id"):
+                relation_skill_ids.append(str(relation["skill_id"]).strip())
+            relation_skill_ids = list(dict.fromkeys(relation_skill_ids))
+            for index, step in enumerate(matched_steps):
+                relationships.append({
+                    **relation,
+                    "relation_id": str(relation.get("relation_id") or f"{step.get('step_id')}:{knowledge_id}")
+                    + (f":{index + 1}" if len(matched_steps) > 1 else ""),
+                    "relation_type": str(relation.get("relation_type") or "required_for_step"),
+                    "strength": "strong",
+                    "step_id": str(step.get("step_id") or ""),
+                    "knowledge_id": knowledge_id,
+                    "skill_ids": relation_skill_ids,
+                })
+        if explicit_relations and not relationships:
+            raise ApiError(422, "KNOWLEDGE_RELATIONSHIP_INVALID", "知识点强关系无法定位到已校验任务步骤")
+        if not relationships:
+            relationships = [
+                {
+                    "relation_id": f"{step.get('step_id')}:{knowledge_id}",
+                    "relation_type": "required_for_step",
+                    "strength": "strong",
+                    "step_id": str(step.get("step_id") or ""),
+                    "knowledge_id": knowledge_id,
+                    "skill_ids": [
+                        str(value) for value in as_list(step.get("skill_point_ids"))
+                    ],
+                    "basis": "validated_step_mapping",
+                    "reason": "该知识点与技能点由已校验任务步骤显式共同引用。",
+                }
+                for step in source_steps
+            ]
+
+        entry_seed = f"{task_card_id}:{knowledge_id}".encode("utf-8")
+        entry_id = f"ple_{hashlib.sha256(entry_seed).hexdigest()[:24]}"
+        artifacts = as_dict(bundle.get("artifacts"))
+        return {
+            "schema_version": "learning-task-knowledge-to-personalized-learning-v1",
+            "entry_id": entry_id,
+            "status": "ready",
+            "source": {
+                "source_system": "learning-work-task-conversion",
+                "task_card_id": task_card_id,
+                "verification_status": str(bundle.get("verification_status") or ""),
+                "full_handoff_json_url": str(artifacts.get("personalized_learning_json_url") or ""),
+            },
+            "task_context": {
+                "work_task_id": str(work_task.get("work_task_id") or ""),
+                "enterprise_task_name": str(work_task.get("enterprise_task_name") or ""),
+                "enterprise_task_description": str(work_task.get("enterprise_task_description") or ""),
+                "teaching_task_name": str(work_task.get("teaching_task_name") or ""),
+                "teaching_task_description": str(work_task.get("teaching_task_description") or ""),
+                "work_situation": work_task.get("work_situation"),
+            },
+            "focus": {
+                "knowledge_point": knowledge,
+                "source_steps": source_steps,
+                "strongly_related_skills": related_skills,
+                "relationships": relationships,
+            },
+            "generation_contract": {
+                "purpose": "围绕选中知识点生成个性化学习目标、内容、练习与评价。",
+                "immutable_fields": [
+                    "task_context.work_task_id",
+                    "task_context.enterprise_task_name",
+                    "focus.source_steps[].step_id",
+                    "focus.source_steps[].action",
+                    "focus.source_steps[].deliverable",
+                    "focus.source_steps[].check",
+                    "focus.relationships",
+                ],
+                "downstream_may_generate": [
+                    "learning_objectives",
+                    "learning_content",
+                    "learning_sequence",
+                    "practice_activities",
+                    "assessment_plan",
+                    "learner_adaptations",
+                ],
+                "must_preserve_relation_traceability": True,
+            },
+            "feedback_contract": {
+                "schema_version": "personalized-learning-to-task-conversion-feedback-v1",
+                "method": "POST",
+                "url": "/api/learning-task-conversion/downstream-feedback",
+                "supported_issue_targets": ["step_id", "knowledge_id", "skill_id", "relation_id"],
+            },
+            "navigation": {
+                "route_key": "personalized_learning.generate_from_knowledge",
+                "entry_path": f"/personalized-learning/tasks/{task_card_id}/knowledge/{knowledge_id}",
+                "return_path": f"/tasks/{task_card_id}",
+            },
+        }
+
+    def open_learning_task_knowledge(
+        self, task_card_id: str, knowledge_id: str, incoming: dict[str, Any]
+    ) -> dict[str, Any]:
+        if not re.fullmatch(r"[A-Za-z0-9_-]{1,100}", knowledge_id):
+            raise ApiError(422, "INVALID_KNOWLEDGE_ID", "知识点标识不合法")
+        bundle = self._learning_task_bundle(task_card_id)
+        handoff = self._learning_task_knowledge_handoff(bundle, task_card_id, knowledge_id)
+        result = self.import_learning_task_knowledge({
+            "student_id": incoming.get("student_id"),
+            "handoff": handoff,
+        })
+        result["knowledge_point_name"] = str(
+            as_dict(as_dict(handoff.get("focus")).get("knowledge_point")).get("name")
+            or knowledge_id
+        )
+        return result
+
     def import_learning_task_knowledge(
         self, incoming: dict[str, Any]
     ) -> dict[str, Any]:
@@ -14117,6 +14352,15 @@ class ApiRequestHandler(BaseHTTPRequestHandler):
                 result = self.application.run_review(payload)
             elif parsed.path == "/api/demo/seed":
                 result = self.application.ingest_upstream(demo_upstream_payload())
+            elif learning_task_entry_match := re.fullmatch(
+                r"/api/integrations/learning-task-conversion/tasks/([^/]+)/knowledge/([^/]+)/personalized-learning-entry",
+                parsed.path,
+            ):
+                result = self.application.open_learning_task_knowledge(
+                    unquote(learning_task_entry_match.group(1)),
+                    unquote(learning_task_entry_match.group(2)),
+                    payload,
+                )
             elif parsed.path == "/api/integrations/learning-task-knowledge":
                 result = self.application.import_learning_task_knowledge(payload)
             elif parsed.path == "/api/integrations/learning-task-conversion/generate":

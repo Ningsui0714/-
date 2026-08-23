@@ -714,12 +714,26 @@
     .assessment-empty { border: 1px dashed var(--line-strong); border-radius: 12px; padding: 22px; text-align: center; color: var(--muted); font-size: 12px; }
 
     .learning-plan { height: 100%; overflow-y: auto; padding: 28px 32px 48px; }
-    .learning-task-workbench { height: 100%; min-height: 0; background: var(--surface); }
+    .learning-task-workbench { display: flex; flex-direction: column; height: 100%; min-height: 0; background: var(--surface); }
     .learning-task-workbench-head { height: 52px; display: flex; align-items: center; gap: 10px; padding: 0 16px; border-bottom: 1px solid var(--line); background: var(--surface); }
     .learning-task-workbench-head i { width: 18px; color: var(--green); }
     .learning-task-workbench-head strong { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 13px; }
     .learning-task-workbench-head small { color: var(--muted); }
-    .learning-task-frame { display: block; width: 100%; height: calc(100% - 52px); border: 0; background: #fff; }
+    .learning-task-entry { display: flex; flex: none; align-items: center; gap: 10px; min-height: 54px; padding: 8px 12px; border-bottom: 1px solid var(--line); background: #f7fbf9; }
+    .learning-task-entry-label { display: flex; flex: none; align-items: center; gap: 6px; color: var(--green-strong); font-size: 11.5px; font-weight: 700; white-space: nowrap; }
+    .learning-task-entry-label i { width: 15px; height: 15px; }
+    .learning-task-entry-actions { display: flex; min-width: 0; gap: 7px; overflow-x: auto; scrollbar-width: thin; }
+    .learning-task-entry-button { display: inline-flex; flex: none; align-items: center; gap: 6px; max-width: 260px; min-height: 34px; border: 1px solid #b9d8c8; border-radius: 7px; padding: 7px 10px; color: var(--green-strong); background: var(--surface); font-size: 11.5px; font-weight: 700; }
+    .learning-task-entry-button span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .learning-task-entry-button i { width: 14px; height: 14px; flex: none; }
+    .learning-task-entry-button:hover { border-color: var(--green); background: var(--green-soft); }
+    .learning-task-entry-button[disabled] { cursor: wait; opacity: .58; }
+    .learning-task-frame { display: block; flex: 1; min-height: 0; width: 100%; border: 0; background: #fff; }
+    @media (max-width: 760px) {
+      .learning-task-workbench-head small { display: none; }
+      .learning-task-entry { align-items: flex-start; flex-direction: column; gap: 6px; }
+      .learning-task-entry-actions { width: 100%; }
+    }
     .learning-plan-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 20px; margin-bottom: 18px; }
     .learning-plan-head h1 { margin: 0 0 6px; font-size: 24px; }
     .learning-plan-head p { margin: 0; color: var(--muted); font-size: 13px; line-height: 1.7; }
@@ -944,6 +958,10 @@
                 <i data-lucide="workflow"></i>
                 <strong id="learning-task-title">学习型任务</strong>
                 <small>任务步骤 · 知识技能映射 · 验收点</small>
+              </div>
+              <div class="learning-task-entry" id="learning-task-entry" hidden>
+                <span class="learning-task-entry-label"><i data-lucide="route"></i>选择知识点进入个性化学习</span>
+                <div class="learning-task-entry-actions" id="learning-task-entry-actions"></div>
               </div>
               <iframe class="learning-task-frame" id="learning-task-frame" title="学习型任务转化结果" referrerpolicy="no-referrer" sandbox="allow-scripts allow-popups allow-downloads"></iframe>
             </section>
@@ -2035,6 +2053,7 @@
         const frame = $("learning-task-frame");
         if (tab.artifactUrl && frame.src !== tab.artifactUrl) frame.src = tab.artifactUrl;
         $("learning-task-title").textContent = tab.title || "学习型任务";
+        renderLearningTaskKnowledgeEntries(tab);
       }
       if (tab.view === "quiz") renderQuiz();
       if (tab.view === "learning_plan") loadLearningPlan(tab.projectId);
@@ -2090,6 +2109,7 @@
         projectId: options.projectId || (state.quiz && state.quiz.project_id) || "",
         taskCardId: options.taskCardId || "",
         artifactUrl: options.artifactUrl || "",
+        bundle: options.bundle || null,
       });
     }
 
@@ -2831,6 +2851,86 @@
       );
     }
 
+    function learningTaskKnowledgePoints(tab) {
+      const bundle = tab && tab.bundle || {};
+      const task = bundle.task || {};
+      const workTask = task.work_task || {};
+      return Array.isArray(workTask.knowledge_points)
+        ? workTask.knowledge_points.filter((item) => (
+            item && /^[A-Za-z0-9_-]{1,100}$/.test(String(item.knowledge_id || ""))
+          ))
+        : [];
+    }
+
+    function renderLearningTaskKnowledgeEntries(tab) {
+      const entry = $("learning-task-entry");
+      const actions = $("learning-task-entry-actions");
+      const points = learningTaskKnowledgePoints(tab);
+      actions.replaceChildren();
+      entry.hidden = !points.length;
+      points.forEach((knowledge) => {
+        const knowledgeId = String(knowledge.knowledge_id || "");
+        const button = document.createElement("button");
+        button.type = "button";
+        button.className = "learning-task-entry-button";
+        button.disabled = Boolean(tab.openingKnowledgeId);
+        button.title = "进入“" + String(knowledge.name || knowledgeId) + "”的个性化学习";
+        button.innerHTML =
+          '<i data-lucide="' + (tab.openingKnowledgeId === knowledgeId ? "loader-circle" : "book-open") + '"></i>' +
+          "<span>" + escapeHtml(knowledge.name || knowledgeId) + "</span>" +
+          '<i data-lucide="arrow-right"></i>';
+        button.onclick = () => openPersonalizedLearningFromTask(tab, knowledge);
+        actions.appendChild(button);
+      });
+      icons();
+    }
+
+    async function openPersonalizedLearningFromTask(tab, knowledge) {
+      const taskCardId = String(tab && tab.taskCardId || "");
+      const knowledgeId = String(knowledge && knowledge.knowledge_id || "");
+      const knowledgeName = String(knowledge && knowledge.name || knowledgeId);
+      if (!taskCardId || !knowledgeId || tab.openingKnowledgeId) return;
+      const conversationKey = activeConversation().key;
+      tab.openingKnowledgeId = knowledgeId;
+      renderLearningTaskKnowledgeEntries(tab);
+      addMsg(
+        "user",
+        "<strong>从任务进入个性化学习：</strong>" + escapeHtml(knowledgeName),
+        conversationKey,
+      );
+      try {
+        const result = await api(
+          "/api/integrations/learning-task-conversion/tasks/" + encodeURIComponent(taskCardId) +
+          "/knowledge/" + encodeURIComponent(knowledgeId) +
+          "/personalized-learning-entry",
+          {
+            method: "POST",
+            body: { student_id: STUDENT_ID },
+            timeoutMs: 60_000,
+          },
+        );
+        await refreshProjects();
+        state.expandedProjects.add(result.project_id);
+        await selectProject(result.project_id);
+        addMsg(
+          "bot",
+          "<p><strong>已进入“" + escapeHtml(knowledgeName) + "”的个性化学习。</strong></p>" +
+          "<p>任务步骤、技能点与强关系已按交接 JSON 保留，接下来只生成你的学习内容、练习与评价。</p>",
+          projectConversationKey(result.project_id),
+        );
+        await openLearningPlan(result.project_id);
+      } catch (error) {
+        addMsg(
+          "bot",
+          "<p><strong>暂时无法进入个性化学习：</strong>" + escapeHtml(error.message) + "</p>",
+          conversationKey,
+        );
+      } finally {
+        tab.openingKnowledgeId = "";
+        if (state.activeTabId === tab.id) renderLearningTaskKnowledgeEntries(tab);
+      }
+    }
+
     async function requestLearningTaskConversion(value) {
       const conversation = activeConversation();
       const conversationKey = conversation.key;
@@ -2861,11 +2961,12 @@
           taskCardId: result.task_card_id,
           artifactUrl,
           title,
+          bundle: result.bundle,
         });
         addMsg(
           "bot",
           "<p><strong>学习型任务已生成，并在当前工作台打开。</strong></p>" +
-          "<p>你可以直接查看任务步骤、验收点以及知识点—技能点关系，不会跳转到其他系统。</p>",
+          "<p>你可以直接查看任务步骤、验收点以及知识点—技能点关系；点击上方知识点，就会在当前系统进入个性化学习。</p>",
           conversationKey,
         );
       } catch (error) {
