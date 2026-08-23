@@ -5862,7 +5862,100 @@ class LearningApplication:
             raise ApiError(503, "TASK_ARTIFACT_UNAVAILABLE", f"任务网页不可用：{reason}") from error
         if "text/html" not in content_type or len(body) > 2_000_000:
             raise ApiError(502, "TASK_ARTIFACT_INVALID", "任务网页响应不符合要求")
-        return body
+        return self._embed_learning_task_step_entries(body)
+
+    @staticmethod
+    def _embed_learning_task_step_entries(body: bytes) -> bytes:
+        """Add a sandbox-safe bridge for knowledge entries inside task steps.
+
+        The interactive artifact remains isolated in its iframe.  Its parent
+        sends the validated step/knowledge mapping after load, and the bridge
+        renders one personalized-learning action beside each mapped knowledge
+        point.  Navigation is returned through ``postMessage`` so the artifact
+        never needs direct access to the host application's API or DOM.
+        """
+        try:
+            html = body.decode("utf-8")
+        except UnicodeDecodeError as error:
+            raise ApiError(502, "TASK_ARTIFACT_INVALID", "任务网页编码不符合要求") from error
+        bridge = r"""
+  <style id="personalized-learning-step-entry-style">
+    .personalized-learning-step-actions { display:inline-flex; flex-wrap:wrap; align-items:center; gap:7px; }
+    .personalized-learning-step-button { display:inline-flex; align-items:center; gap:6px; min-height:30px; padding:4px 10px; border:1px solid #7ab99f; border-radius:8px; color:#087c62; background:#f2fbf7; font:700 12px/1.35 -apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC","Microsoft YaHei",sans-serif; cursor:pointer; }
+    .personalized-learning-step-button::after { content:"→"; font-size:14px; }
+    .personalized-learning-step-button:hover,.personalized-learning-step-button:focus-visible { border-color:#087c62; background:#ddf7ee; outline:2px solid rgba(8,124,98,.16); outline-offset:1px; }
+    .personalized-learning-step-button:disabled { cursor:wait; opacity:.56; }
+  </style>
+  <script id="personalized-learning-step-entry-bridge">
+    (() => {
+      const CONFIGURE = "learning-task:configure-personalized-entries";
+      const OPEN = "learning-task:open-personalized-learning";
+      const READY = "learning-task:artifact-ready";
+      const clean = value => String(value || "").trim();
+      const validId = value => /^[A-Za-z0-9_-]{1,100}$/.test(clean(value));
+      const knowledgeRow = step => [...step.querySelectorAll(".mapping-row")].find(row => {
+        const label = row.firstElementChild;
+        return label && clean(label.textContent).includes("关联知识点");
+      });
+      const render = data => {
+        document.querySelectorAll(".personalized-learning-step-actions").forEach(node => node.remove());
+        const points = new Map((Array.isArray(data.knowledgePoints) ? data.knowledgePoints : [])
+          .filter(point => point && validId(point.knowledgeId))
+          .map(point => [clean(point.knowledgeId), { knowledgeId: clean(point.knowledgeId), name: clean(point.name) || clean(point.knowledgeId) }]));
+        const steps = Array.isArray(data.steps) ? data.steps : [];
+        [...document.querySelectorAll("details.step")].forEach((stepElement, index) => {
+          const step = steps[index] || {};
+          let ids = Array.isArray(step.knowledgePointIds)
+            ? step.knowledgePointIds.map(clean).filter(id => points.has(id))
+            : [];
+          if (!ids.length) {
+            const displayed = clean(knowledgeRow(stepElement)?.textContent);
+            ids = [...points.values()].filter(point => displayed.includes(point.name)).map(point => point.knowledgeId);
+          }
+          ids = [...new Set(ids)];
+          if (!ids.length) return;
+          const row = knowledgeRow(stepElement);
+          const target = row && (row.lastElementChild || row);
+          if (!target) return;
+          const actions = document.createElement("span");
+          actions.className = "personalized-learning-step-actions";
+          actions.setAttribute("aria-label", "进入个性化学习");
+          ids.forEach(id => {
+            const point = points.get(id);
+            const button = document.createElement("button");
+            button.type = "button";
+            button.className = "personalized-learning-step-button";
+            button.textContent = "学习“" + point.name + "”";
+            button.title = "围绕本步骤的“" + point.name + "”进入个性化学习";
+            button.disabled = clean(data.openingKnowledgeId) === id;
+            button.addEventListener("click", event => {
+              event.preventDefault();
+              event.stopPropagation();
+              window.parent.postMessage({
+                type: OPEN,
+                taskCardId: clean(data.taskCardId),
+                knowledgeId: id,
+              }, "*");
+            });
+            actions.appendChild(button);
+          });
+          target.appendChild(actions);
+        });
+      };
+      window.addEventListener("message", event => {
+        if (event.source !== window.parent || !event.data || event.data.type !== CONFIGURE) return;
+        render(event.data);
+      });
+      window.parent.postMessage({ type: READY }, "*");
+    })();
+  </script>
+"""
+        marker = "</body>"
+        if marker in html:
+            html = html.replace(marker, bridge + marker, 1)
+        else:
+            html += bridge
+        return html.encode("utf-8")
 
     def _learning_task_bundle(self, task_card_id: str) -> dict[str, Any]:
         """Read the server-persisted integration bundle for one generated task."""

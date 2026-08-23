@@ -136,6 +136,20 @@ class BackendIntegrationTests(unittest.TestCase):
         self.assertEqual(sent["student_id"], "STU-001")
         self.assertEqual(sent["query"], "Unity第三人称摄像机跟随模块开发")
 
+    def test_learning_task_artifact_embeds_step_level_personalized_entry_bridge(self):
+        application = self.server.RequestHandlerClass.application
+        source = b"<!doctype html><html><body><details class='step'></details></body></html>"
+
+        result = application._embed_learning_task_step_entries(source).decode("utf-8")
+
+        self.assertIn("personalized-learning-step-button", result)
+        self.assertIn("learning-task:configure-personalized-entries", result)
+        self.assertIn("learning-task:open-personalized-learning", result)
+        self.assertLess(
+            result.index("personalized-learning-step-entry-bridge"),
+            result.index("</body>"),
+        )
+
     def test_unified_learning_context_overrides_assessment_route(self):
         application = self.server.RequestHandlerClass.application
         context = {

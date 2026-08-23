@@ -719,20 +719,9 @@
     .learning-task-workbench-head i { width: 18px; color: var(--green); }
     .learning-task-workbench-head strong { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 13px; }
     .learning-task-workbench-head small { color: var(--muted); }
-    .learning-task-entry { display: flex; flex: none; align-items: center; gap: 10px; min-height: 54px; padding: 8px 12px; border-bottom: 1px solid var(--line); background: #f7fbf9; }
-    .learning-task-entry-label { display: flex; flex: none; align-items: center; gap: 6px; color: var(--green-strong); font-size: 11.5px; font-weight: 700; white-space: nowrap; }
-    .learning-task-entry-label i { width: 15px; height: 15px; }
-    .learning-task-entry-actions { display: flex; min-width: 0; gap: 7px; overflow-x: auto; scrollbar-width: thin; }
-    .learning-task-entry-button { display: inline-flex; flex: none; align-items: center; gap: 6px; max-width: 260px; min-height: 34px; border: 1px solid #b9d8c8; border-radius: 7px; padding: 7px 10px; color: var(--green-strong); background: var(--surface); font-size: 11.5px; font-weight: 700; }
-    .learning-task-entry-button span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-    .learning-task-entry-button i { width: 14px; height: 14px; flex: none; }
-    .learning-task-entry-button:hover { border-color: var(--green); background: var(--green-soft); }
-    .learning-task-entry-button[disabled] { cursor: wait; opacity: .58; }
     .learning-task-frame { display: block; flex: 1; min-height: 0; width: 100%; border: 0; background: #fff; }
     @media (max-width: 760px) {
       .learning-task-workbench-head small { display: none; }
-      .learning-task-entry { align-items: flex-start; flex-direction: column; gap: 6px; }
-      .learning-task-entry-actions { width: 100%; }
     }
     .learning-plan-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 20px; margin-bottom: 18px; }
     .learning-plan-head h1 { margin: 0 0 6px; font-size: 24px; }
@@ -958,10 +947,6 @@
                 <i data-lucide="workflow"></i>
                 <strong id="learning-task-title">学习型任务</strong>
                 <small>任务步骤 · 知识技能映射 · 验收点</small>
-              </div>
-              <div class="learning-task-entry" id="learning-task-entry" hidden>
-                <span class="learning-task-entry-label"><i data-lucide="route"></i>选择知识点进入个性化学习</span>
-                <div class="learning-task-entry-actions" id="learning-task-entry-actions"></div>
               </div>
               <iframe class="learning-task-frame" id="learning-task-frame" title="学习型任务转化结果" referrerpolicy="no-referrer" sandbox="allow-scripts allow-popups allow-downloads"></iframe>
             </section>
@@ -2051,9 +2036,10 @@
       if (tab.view === "lesson") renderLessonTab(tab);
       if (tab.view === "learning_task") {
         const frame = $("learning-task-frame");
-        if (tab.artifactUrl && frame.src !== tab.artifactUrl) frame.src = tab.artifactUrl;
+        const artifactUrl = tab.artifactUrl ? new URL(tab.artifactUrl, location.href).href : "";
+        if (artifactUrl && frame.src !== artifactUrl) frame.src = artifactUrl;
         $("learning-task-title").textContent = tab.title || "学习型任务";
-        renderLearningTaskKnowledgeEntries(tab);
+        configureLearningTaskStepEntries(tab);
       }
       if (tab.view === "quiz") renderQuiz();
       if (tab.view === "learning_plan") loadLearningPlan(tab.projectId);
@@ -2862,27 +2848,26 @@
         : [];
     }
 
-    function renderLearningTaskKnowledgeEntries(tab) {
-      const entry = $("learning-task-entry");
-      const actions = $("learning-task-entry-actions");
-      const points = learningTaskKnowledgePoints(tab);
-      actions.replaceChildren();
-      entry.hidden = !points.length;
-      points.forEach((knowledge) => {
-        const knowledgeId = String(knowledge.knowledge_id || "");
-        const button = document.createElement("button");
-        button.type = "button";
-        button.className = "learning-task-entry-button";
-        button.disabled = Boolean(tab.openingKnowledgeId);
-        button.title = "进入“" + String(knowledge.name || knowledgeId) + "”的个性化学习";
-        button.innerHTML =
-          '<i data-lucide="' + (tab.openingKnowledgeId === knowledgeId ? "loader-circle" : "book-open") + '"></i>' +
-          "<span>" + escapeHtml(knowledge.name || knowledgeId) + "</span>" +
-          '<i data-lucide="arrow-right"></i>';
-        button.onclick = () => openPersonalizedLearningFromTask(tab, knowledge);
-        actions.appendChild(button);
-      });
-      icons();
+    function configureLearningTaskStepEntries(tab) {
+      const frame = $("learning-task-frame");
+      if (!tab || tab.view !== "learning_task" || !frame.contentWindow) return;
+      const bundle = tab.bundle || {};
+      const workTask = bundle.task && bundle.task.work_task || {};
+      const steps = Array.isArray(workTask.task_steps) ? workTask.task_steps : [];
+      frame.contentWindow.postMessage({
+        type: "learning-task:configure-personalized-entries",
+        taskCardId: String(tab.taskCardId || ""),
+        openingKnowledgeId: String(tab.openingKnowledgeId || ""),
+        knowledgePoints: learningTaskKnowledgePoints(tab).map((knowledge) => ({
+          knowledgeId: String(knowledge.knowledge_id || ""),
+          name: String(knowledge.name || knowledge.knowledge_id || ""),
+        })),
+        steps: steps.map((step) => ({
+          knowledgePointIds: Array.isArray(step && step.knowledge_point_ids)
+            ? step.knowledge_point_ids.map((value) => String(value || ""))
+            : [],
+        })),
+      }, "*");
     }
 
     async function openPersonalizedLearningFromTask(tab, knowledge) {
@@ -2892,7 +2877,7 @@
       if (!taskCardId || !knowledgeId || tab.openingKnowledgeId) return;
       const conversationKey = activeConversation().key;
       tab.openingKnowledgeId = knowledgeId;
-      renderLearningTaskKnowledgeEntries(tab);
+      configureLearningTaskStepEntries(tab);
       addMsg(
         "user",
         "<strong>从任务进入个性化学习：</strong>" + escapeHtml(knowledgeName),
@@ -2927,9 +2912,32 @@
         );
       } finally {
         tab.openingKnowledgeId = "";
-        if (state.activeTabId === tab.id) renderLearningTaskKnowledgeEntries(tab);
+        if (state.activeTabId === tab.id) configureLearningTaskStepEntries(tab);
       }
     }
+
+    $("learning-task-frame").addEventListener("load", () => {
+      const tab = workspaceTab(state.activeTabId);
+      if (tab && tab.view === "learning_task") configureLearningTaskStepEntries(tab);
+    });
+
+    window.addEventListener("message", (event) => {
+      const frame = $("learning-task-frame");
+      if (event.source !== frame.contentWindow || !event.data) return;
+      const tab = workspaceTab(state.activeTabId);
+      if (!tab || tab.view !== "learning_task") return;
+      if (event.data.type === "learning-task:artifact-ready") {
+        configureLearningTaskStepEntries(tab);
+        return;
+      }
+      if (event.data.type !== "learning-task:open-personalized-learning") return;
+      if (String(event.data.taskCardId || "") !== String(tab.taskCardId || "")) return;
+      const knowledgeId = String(event.data.knowledgeId || "");
+      const knowledge = learningTaskKnowledgePoints(tab).find(
+        (item) => String(item.knowledge_id || "") === knowledgeId,
+      );
+      if (knowledge) openPersonalizedLearningFromTask(tab, knowledge);
+    });
 
     async function requestLearningTaskConversion(value) {
       const conversation = activeConversation();
@@ -2966,7 +2974,7 @@
         addMsg(
           "bot",
           "<p><strong>学习型任务已生成，并在当前工作台打开。</strong></p>" +
-          "<p>你可以直接查看任务步骤、验收点以及知识点—技能点关系；点击上方知识点，就会在当前系统进入个性化学习。</p>",
+          "<p>你可以直接查看任务步骤、验收点以及知识点—技能点关系；点击对应步骤里的知识点学习按钮，就会在当前系统进入个性化学习。</p>",
           conversationKey,
         );
       } catch (error) {
