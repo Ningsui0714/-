@@ -1,0 +1,611 @@
+flowMeta:
+  name: 学生画像分析工作流
+  description: 低频分析教学历史、知识状态、练习结果与资源偏好，输出可缓存的学生画像和默认策略。
+  avatarIcon: ''
+  avatarColor: '#EAF7EE'
+  advancedConfig: '{"prologue":{"enabled":false},"needGuide":false}'
+  dslVersion: v1
+flowData:
+  nodes:
+    - id: node-start::cdcb9af8-c217-5907-947a-6372619ec7b0
+      type: 开始节点
+      position: {x: 0, y: 200}
+      positionAbsolute: {x: 0, y: 200}
+      width: 256
+      height: 74
+      data:
+        allowInputReference: false
+        allowOutputReference: true
+        label: 开始
+        nodeMeta: {aliasName: 开始节点, nodeType: 基础节点}
+        inputs: []
+        outputs:
+          - id: d56a3fe5-0324-5bdf-9835-67c4d3ccfcc6
+            name: AGENT_USER_INPUT
+            schema:
+              type: string
+              default: 包含学生教学历史、知识状态、练习结果和资源偏好的 JSON 字符串
+            required: true
+            deleteDisabled: true
+            nameErrMsg: ''
+        nodeParam: {}
+        updatable: false
+        status: ''
+        icon: https://oss-beijing-m8.openstorage.cn/pro-bucket/sparkBot/common/workflow/icon/start-node-icon.png
+        description: 工作流的开启节点，用于定义流程调用所需的业务变量信息。
+      dragging: false
+      selected: false
+    - id: ifly-code::63a14c7a-e358-5ccc-bf15-e337d69bbd6f
+      type: 代码
+      position: {x: 380, y: 200}
+      positionAbsolute: {x: 380, y: 200}
+      width: 362
+      height: 100
+      data:
+        allowInputReference: true
+        allowOutputReference: true
+        label: 聚合学生历史
+        nodeMeta: {aliasName: 代码, nodeType: 工具}
+        inputs:
+          - id: 126eca1a-7a2c-5b78-87bf-297a0bc2ef91
+            name: raw_input
+            schema:
+              type: string
+              value:
+                type: ref
+                content: {name: AGENT_USER_INPUT, id: d56a3fe5-0324-5bdf-9835-67c4d3ccfcc6, nodeId: 'node-start::cdcb9af8-c217-5907-947a-6372619ec7b0'}
+                contentErrMsg: ''
+            nameErrMsg: ''
+            fileType: ''
+        outputs:
+          - id: 3aec94b8-b1a4-562d-819d-be9df157cadd
+            name: student_id
+            schema: {type: string, default: ''}
+            nameErrMsg: ''
+            required: false
+          - id: 6309fd10-1f46-55bd-a71c-ac5ed7eb1e02
+            name: teaching_history_json
+            schema: {type: string, default: ''}
+            nameErrMsg: ''
+            required: false
+          - id: 6f1ee7c0-59ee-5e76-a84a-6b2c6cce2d56
+            name: knowledge_state_json
+            schema: {type: string, default: ''}
+            nameErrMsg: ''
+            required: false
+          - id: 9d5a3b7d-0612-53f2-832e-a9961efbe25b
+            name: practice_results_json
+            schema: {type: string, default: ''}
+            nameErrMsg: ''
+            required: false
+          - id: acfe7995-19b9-5eeb-8199-6f3d858f70b1
+            name: resource_preferences_json
+            schema: {type: string, default: ''}
+            nameErrMsg: ''
+            required: false
+          - id: fd412f59-1cf1-5950-ba8a-cea7e3afc4b7
+            name: mode_statistics_json
+            schema: {type: string, default: ''}
+            nameErrMsg: ''
+            required: false
+          - id: 7e93a59a-8244-53b5-9d27-56aa3941dc86
+            name: recurring_errors_json
+            schema: {type: string, default: ''}
+            nameErrMsg: ''
+            required: false
+          - id: 2118493f-1393-53d5-8322-ca29b34aae3d
+            name: event_count
+            schema: {type: integer, default: 0}
+            nameErrMsg: ''
+            required: false
+        nodeParam:
+          code: |-
+            import json
+
+
+            def _parse_input(raw_input):
+                value = raw_input
+                for _ in range(3):
+                    if isinstance(value, dict):
+                        if "input" in value:
+                            value = value.get("input")
+                            continue
+                        if "AGENT_USER_INPUT" in value:
+                            value = value.get("AGENT_USER_INPUT")
+                            continue
+                        return value
+                    text = str(value or "").strip()
+                    if not text:
+                        return {}
+                    value = json.loads(text, strict=False)
+                if not isinstance(value, dict):
+                    raise ValueError("输入必须是 JSON 对象或 JSON 字符串")
+                return value
+
+
+            def _collect_error_types(value, counts):
+                if isinstance(value, dict):
+                    error_type = str(value.get("error_type", "")).strip()
+                    if error_type:
+                        counts[error_type] = counts.get(error_type, 0) + 1
+                    for item in value.values():
+                        _collect_error_types(item, counts)
+                elif isinstance(value, list):
+                    for item in value:
+                        _collect_error_types(item, counts)
+
+
+            def main(raw_input):
+                data = _parse_input(raw_input)
+                if not isinstance(data, dict):
+                    raise ValueError("输入必须是 JSON 对象")
+                student_id = str(data.get("student_id", "")).strip()
+                history = data.get("teaching_history", {})
+                if not isinstance(history, dict):
+                    history = {}
+                events = history.get("events", [])
+                if not isinstance(events, list):
+                    events = []
+                events = [item for item in events[-100:] if isinstance(item, dict)]
+                history = {"events": events}
+
+                statistics = {}
+                for event in events:
+                    mode = str(event.get("teaching_mode", "")).strip()
+                    if not mode:
+                        continue
+                    item = statistics.setdefault(
+                        mode,
+                        {"total": 0, "passed": 0, "not_understood": 0},
+                    )
+                    item["total"] += 1
+                    effect = str(event.get("effect", "")).strip().lower()
+                    if effect == "passed":
+                        item["passed"] += 1
+                    elif effect == "not_understood":
+                        item["not_understood"] += 1
+                mode_statistics = {
+                    mode: {
+                        **statistics[mode],
+                        "pass_rate": round(
+                            statistics[mode]["passed"] / statistics[mode]["total"],
+                            2,
+                        ),
+                    }
+                    for mode in sorted(statistics)
+                }
+
+                error_counts = {}
+                _collect_error_types(data, error_counts)
+                recurring_errors = {
+                    error_type: error_counts[error_type]
+                    for error_type in sorted(error_counts)
+                    if error_counts[error_type] >= 2
+                }
+
+                knowledge = data.get("knowledge_state", {})
+                practice = data.get("practice_results", [])
+                preferences = data.get("resource_preferences", {})
+                return {
+                    "student_id": student_id,
+                    "teaching_history_json": json.dumps(history, ensure_ascii=False, separators=(",", ":")),
+                    "knowledge_state_json": json.dumps(knowledge if isinstance(knowledge, dict) else {}, ensure_ascii=False, separators=(",", ":")),
+                    "practice_results_json": json.dumps(practice[-100:] if isinstance(practice, list) else [], ensure_ascii=False, separators=(",", ":")),
+                    "resource_preferences_json": json.dumps(preferences if isinstance(preferences, dict) else {}, ensure_ascii=False, separators=(",", ":")),
+                    "mode_statistics_json": json.dumps(mode_statistics, ensure_ascii=False, separators=(",", ":")),
+                    "recurring_errors_json": json.dumps(recurring_errors, ensure_ascii=False, separators=(",", ":")),
+                    "event_count": max(0, int(data.get("event_count", 0) or 0)),
+                }
+          appId: 6545ca99
+          uid: '21880654528'
+          codeErrMsg: ''
+        updatable: false
+        status: ''
+        references: []
+        labelEdit: false
+        icon: https://oss-beijing-m8.openstorage.cn/SparkBotProd/icon/icon-wrapper-question.svg
+        description: 面向开发者提供 Python 代码执行能力。
+      dragging: false
+      selected: false
+    - id: spark-llm::648efae8-f5bc-5714-916e-067b75d44e7a
+      type: 大模型
+      position: {x: 820, y: 200}
+      positionAbsolute: {x: 820, y: 200}
+      width: 362
+      height: 100
+      data:
+        allowInputReference: true
+        allowOutputReference: true
+        label: 分析学生画像
+        nodeMeta: {aliasName: 大模型, nodeType: 基础节点}
+        inputs:
+          - id: 8b091329-b698-55a7-a684-b5169731a333
+            name: teaching_history
+            schema:
+              type: string
+              value:
+                type: ref
+                content: {name: teaching_history_json, id: 6309fd10-1f46-55bd-a71c-ac5ed7eb1e02, nodeId: 'ifly-code::63a14c7a-e358-5ccc-bf15-e337d69bbd6f'}
+                contentErrMsg: ''
+            nameErrMsg: ''
+            fileType: ''
+          - id: a7f42f76-62df-5b3f-9f78-e47c9a14a9d6
+            name: knowledge_state
+            schema:
+              type: string
+              value:
+                type: ref
+                content: {name: knowledge_state_json, id: 6f1ee7c0-59ee-5e76-a84a-6b2c6cce2d56, nodeId: 'ifly-code::63a14c7a-e358-5ccc-bf15-e337d69bbd6f'}
+                contentErrMsg: ''
+            nameErrMsg: ''
+            fileType: ''
+          - id: 6606dbc0-40d4-52dd-98df-49d1f3ecb1fe
+            name: practice_results
+            schema:
+              type: string
+              value:
+                type: ref
+                content: {name: practice_results_json, id: 9d5a3b7d-0612-53f2-832e-a9961efbe25b, nodeId: 'ifly-code::63a14c7a-e358-5ccc-bf15-e337d69bbd6f'}
+                contentErrMsg: ''
+            nameErrMsg: ''
+            fileType: ''
+          - id: 14931821-42e6-5ae7-9781-1bed279e2e41
+            name: resource_preferences
+            schema:
+              type: string
+              value:
+                type: ref
+                content: {name: resource_preferences_json, id: acfe7995-19b9-5eeb-8199-6f3d858f70b1, nodeId: 'ifly-code::63a14c7a-e358-5ccc-bf15-e337d69bbd6f'}
+                contentErrMsg: ''
+            nameErrMsg: ''
+            fileType: ''
+          - id: d0609b68-ff6c-59a9-8cdf-8cb1658f1ad4
+            name: mode_statistics
+            schema:
+              type: string
+              value:
+                type: ref
+                content: {name: mode_statistics_json, id: fd412f59-1cf1-5950-ba8a-cea7e3afc4b7, nodeId: 'ifly-code::63a14c7a-e358-5ccc-bf15-e337d69bbd6f'}
+                contentErrMsg: ''
+            nameErrMsg: ''
+            fileType: ''
+          - id: 3cb1c2dd-668d-5db1-8fab-c088f18ef3ee
+            name: recurring_errors
+            schema:
+              type: string
+              value:
+                type: ref
+                content: {name: recurring_errors_json, id: 7e93a59a-8244-53b5-9d27-56aa3941dc86, nodeId: 'ifly-code::63a14c7a-e358-5ccc-bf15-e337d69bbd6f'}
+                contentErrMsg: ''
+            nameErrMsg: ''
+            fileType: ''
+          - id: b491518f-9320-57d0-b839-15756ad60f4b
+            name: event_count
+            schema:
+              type: integer
+              value:
+                type: ref
+                content: {name: event_count, id: 2118493f-1393-53d5-8322-ca29b34aae3d, nodeId: 'ifly-code::63a14c7a-e358-5ccc-bf15-e337d69bbd6f'}
+                contentErrMsg: ''
+            nameErrMsg: ''
+            fileType: ''
+        outputs:
+          - id: ee27fc82-86ab-5aed-9662-4e25feb4ca7b
+            name: output
+            schema: {type: string, default: ''}
+            nameErrMsg: ''
+            required: false
+        nodeParam:
+          topK: 4
+          template: |-
+            教学历史
+            {{teaching_history}}
+
+            知识状态
+            {{knowledge_state}}
+
+            练习结果
+            {{practice_results}}
+
+            资源偏好
+            {{resource_preferences}}
+
+            教学方式预统计
+            {{mode_statistics}}
+
+            重复错误类型
+            {{recurring_errors}}
+
+            累计事件数
+            {{event_count}}
+          enableChatHistoryV2: {isEnabled: false, rounds: 1}
+          auditing: default
+          llmId: 110
+          url: wss://spark-api.xf-yun.com/v4.0/chat
+          domain: 4.0Ultra
+          maxTokens: 2048
+          temperature: 0.2
+          model: spark
+          serviceId: bm4
+          respFormat: 0
+          systemTemplate: |-
+            你是职业教育学生画像分析师。根据学生教学历史、知识状态、练习结果和资源偏好，生成学生画像与策略建议。
+
+            分析要求：
+            1. 优先使用 mode_statistics 中的统计数据，不需要重新计算。
+            2. 统计各教学方式的效果。execution_trace 通过率不低于 60% 时可判为 procedural_learner；worked_example 通过率最高时判为 example_driven；video_interactive 效果最好时判为 visual_preferred；无明显差异时为 balanced。
+            3. 根据 recurring_errors 提取重复至少两次的错误类型，归纳 misconception_tags。
+            4. effect=passed 占比不低于 60% 的方式记为有效；effect=not_understood 占比不低于 60% 的方式记为无效。
+            5. pace_factor 为每知识点平均完成事件数除以标准值 3，并限制在 0.5 到 1.5。
+            6. 按 code 和 conceptual 分组计算掌握度，给出带样本量的 strengths 与 weaknesses。
+            7. 给出首选、回退、纠错方式以及是否检查前置知识等策略默认值。
+            8. 只能分析输入中存在的数据；样本不足时降低置信度，不编造表现。
+            9. 六维能力评分（ability_scores）：理解/应用/推理按 knowledge_state 中 概念/代码/推理 类目掌握度映射；recurring_errors 中换场景或迁移类错误多则迁移能力调低；表达/复盘类样本不足时对应维度降 confidence。score 范围 0-100，confidence 范围 0-1，样本不足一律降 confidence，不编造。
+            10. learning_style_distribution 依据 mode_statistics 推断：worked_example 通过率最高 → visual 权重最高；execution_trace 通过率最高 → kinesthetic 权重最高；video_interactive 最好 → visual 高；无明显差异 → 四维均衡。四个权重合计约 1.0。
+
+            只输出一个合法 JSON 对象，不输出 Markdown 代码块：
+            {
+              "student_model":{
+                "learning_style":"procedural_learner|example_driven|visual_preferred|balanced",
+                "learning_style_confidence":0.8,
+                "effective_modes":{"execution_trace":0.85},
+                "ineffective_modes":["analogy"],
+                "misconception_tags":["统计口径混淆"],
+                "pace_factor":1.0,
+                "strengths":[{"type":"code","mastery_avg":78,"sample_size":3}],
+                "weaknesses":[{"type":"conceptual","mastery_avg":42,"sample_size":2}],
+                "attention_pattern":"sustained",
+                "scaffold_preference":"moderate"
+              },
+              "ability_scores":{
+                "理解能力":{"score":78,"confidence":0.8},
+                "应用能力":{"score":72,"confidence":0.7},
+                "推理能力":{"score":70,"confidence":0.7},
+                "表达能力":{"score":64,"confidence":0.5},
+                "复盘能力":{"score":68,"confidence":0.6},
+                "迁移能力":{"score":60,"confidence":0.5}
+              },
+              "learning_style_distribution":{"visual":0.4,"auditory":0.2,"kinesthetic":0.3,"reading":0.1},
+              "strategy_defaults":{
+                "learning_preferred_mode":"execution_trace",
+                "learning_fallback_mode":"worked_example",
+                "remediation_preferred_mode":"trace_and_debug",
+                "same_error_threshold":2,
+                "prerequisite_check_before_new_topic":true,
+                "understanding_check_difficulty":"same"
+              },
+              "generated_at":"ISO 8601 时间",
+              "based_on_event_count":0
+            }
+          appId: 6545ca99
+          uid: '21880654528'
+          patchId: '0'
+          llmIdErrMsg: ''
+          templateErrMsg: ''
+        retryConfig: {shouldRetry: true, errorStrategy: 0}
+        updatable: false
+        status: ''
+        references: []
+        labelEdit: false
+        icon: https://oss-beijing-m8.openstorage.cn/SparkBotProd/icon/icon-wrapper-model.svg
+        description: 根据输入的提示词调用选定的大模型并生成回答。
+      dragging: false
+      selected: false
+    - id: ifly-code::4367c7af-ec6c-58a7-89ff-76d610a04166
+      type: 代码
+      position: {x: 1260, y: 200}
+      positionAbsolute: {x: 1260, y: 200}
+      width: 362
+      height: 100
+      data:
+        allowInputReference: true
+        allowOutputReference: true
+        label: 校验学生画像输出
+        nodeMeta: {aliasName: 代码, nodeType: 工具}
+        inputs:
+          - id: 7c2304cf-1a45-504d-beab-84be15ec3ce4
+            name: model_output
+            schema:
+              type: string
+              value:
+                type: ref
+                content: {name: output, id: ee27fc82-86ab-5aed-9662-4e25feb4ca7b, nodeId: 'spark-llm::648efae8-f5bc-5714-916e-067b75d44e7a'}
+                contentErrMsg: ''
+            nameErrMsg: ''
+            fileType: ''
+          - id: ee06f67b-5a02-5b1b-adf4-3a2dcda276e4
+            name: event_count
+            schema:
+              type: integer
+              value:
+                type: ref
+                content: {name: event_count, id: 2118493f-1393-53d5-8322-ca29b34aae3d, nodeId: 'ifly-code::63a14c7a-e358-5ccc-bf15-e337d69bbd6f'}
+                contentErrMsg: ''
+            nameErrMsg: ''
+            fileType: ''
+          - id: 8a8911ac-903a-56ee-afde-297629f70cb7
+            name: student_id
+            schema:
+              type: string
+              value:
+                type: ref
+                content: {name: student_id, id: 3aec94b8-b1a4-562d-819d-be9df157cadd, nodeId: 'ifly-code::63a14c7a-e358-5ccc-bf15-e337d69bbd6f'}
+                contentErrMsg: ''
+            nameErrMsg: ''
+            fileType: ''
+        outputs:
+          - id: a994bab6-76dd-5351-bced-9c9d700786ba
+            name: final_result_json
+            schema: {type: string, default: ''}
+            nameErrMsg: ''
+            required: false
+        nodeParam:
+          code: |-
+            import json
+            import re
+            from datetime import datetime, timezone
+
+
+            STYLES = {"procedural_learner", "example_driven", "visual_preferred", "balanced"}
+            ABILITY_DIMENSIONS = ("理解能力", "应用能力", "推理能力", "表达能力", "复盘能力", "迁移能力")
+            STYLE_KEYS = ("visual", "auditory", "kinesthetic", "reading")
+            BALANCED_DISTRIBUTION = {"visual": 0.25, "auditory": 0.25, "kinesthetic": 0.25, "reading": 0.25}
+
+
+            def main(model_output, event_count, student_id):
+                try:
+                    text = re.sub(r"^```(?:json)?\s*|\s*```$", "", str(model_output or "").strip(), flags=re.I)
+                    start, end = text.find("{"), text.rfind("}")
+                    if start < 0 or end < start:
+                        raise ValueError("大模型输出中未找到 JSON 对象")
+                    result = json.loads(text[start:end + 1], strict=False)
+                    model = result.get("student_model")
+                    defaults = result.get("strategy_defaults")
+                    if not isinstance(model, dict) or not isinstance(defaults, dict):
+                        raise ValueError("画像或默认策略不是对象")
+                    if model.get("learning_style") not in STYLES:
+                        raise ValueError("learning_style 不在允许枚举中")
+                    pace = float(model.get("pace_factor", 1.0))
+                    model["pace_factor"] = max(0.5, min(pace, 1.5))
+                    if not isinstance(model.get("effective_modes", {}), dict):
+                        raise ValueError("effective_modes 必须是对象")
+                    if not isinstance(model.get("ineffective_modes", []), list):
+                        raise ValueError("ineffective_modes 必须是数组")
+                    filled_defaults = False
+                    ability_scores = result.get("ability_scores")
+                    if not isinstance(ability_scores, dict):
+                        ability_scores = {}
+                        filled_defaults = True
+                    normalized_scores = {}
+                    for dim in ABILITY_DIMENSIONS:
+                        entry = ability_scores.get(dim)
+                        if not isinstance(entry, dict):
+                            entry = {"score": 50, "confidence": 0.3}
+                            filled_defaults = True
+                        try:
+                            score = max(0.0, min(100.0, float(entry.get("score", 50))))
+                            confidence = max(0.0, min(1.0, float(entry.get("confidence", 0.3))))
+                        except (TypeError, ValueError):
+                            score, confidence = 50.0, 0.3
+                            filled_defaults = True
+                        normalized_scores[dim] = {
+                            "score": round(score, 1),
+                            "confidence": round(confidence, 2),
+                        }
+                    result["ability_scores"] = normalized_scores
+                    distribution = result.get("learning_style_distribution")
+                    if not isinstance(distribution, dict):
+                        distribution = {}
+                        filled_defaults = True
+                    raw = {}
+                    total = 0.0
+                    for key in STYLE_KEYS:
+                        try:
+                            value = max(0.0, float(distribution.get(key, 0.0)))
+                        except (TypeError, ValueError):
+                            value = 0.0
+                        raw[key] = value
+                        total += value
+                    if total <= 0:
+                        raw = dict(BALANCED_DISTRIBUTION)
+                        filled_defaults = True
+                    result["learning_style_distribution"] = {
+                        key: round(value / (total if total > 0 else 1.0), 3)
+                        for key, value in raw.items()
+                    }
+                    result["status"] = "ok"
+                    result["student_id"] = str(student_id or "")
+                    result["generated_at"] = datetime.now(timezone.utc).isoformat()
+                    result["based_on_event_count"] = max(0, int(event_count or 0))
+                    if filled_defaults:
+                        result["is_fallback"] = True
+                    return {"final_result_json": json.dumps(result, ensure_ascii=False, separators=(",", ":"))}
+                except Exception:
+                    fallback = {
+                        "status": "ok",
+                        "student_id": str(student_id or ""),
+                        "student_model": {
+                            "learning_style": "balanced",
+                            "learning_style_confidence": 0.5,
+                            "effective_modes": {"interactive_document": 0.5},
+                            "ineffective_modes": [],
+                            "misconception_tags": [],
+                            "pace_factor": 1.0,
+                            "strengths": [],
+                            "weaknesses": [],
+                            "attention_pattern": "sustained",
+                            "scaffold_preference": "moderate",
+                        },
+                        "ability_scores": {
+                            dim: {"score": 50.0, "confidence": 0.3}
+                            for dim in ABILITY_DIMENSIONS
+                        },
+                        "learning_style_distribution": dict(BALANCED_DISTRIBUTION),
+                        "strategy_defaults": {
+                            "learning_preferred_mode": "interactive_document",
+                            "learning_fallback_mode": "worked_example",
+                            "remediation_preferred_mode": "trace_and_debug",
+                            "same_error_threshold": 2,
+                            "prerequisite_check_before_new_topic": False,
+                            "understanding_check_difficulty": "same",
+                        },
+                        "generated_at": datetime.now(timezone.utc).isoformat(),
+                        "based_on_event_count": 0,
+                        "is_fallback": True,
+                    }
+                    return {"final_result_json": json.dumps(fallback, ensure_ascii=False, separators=(",", ":"))}
+          appId: 6545ca99
+          uid: '21880654528'
+          codeErrMsg: ''
+        updatable: false
+        status: ''
+        references: []
+        labelEdit: false
+        icon: https://oss-beijing-m8.openstorage.cn/SparkBotProd/icon/icon-wrapper-question.svg
+        description: 面向开发者提供 Python 代码执行能力。
+      dragging: false
+      selected: false
+    - id: node-end::9a8f268f-d174-5cac-bf34-fd6afb7eeee7
+      type: 结束节点
+      position: {x: 1700, y: 200}
+      positionAbsolute: {x: 1700, y: 200}
+      width: 362
+      height: 74
+      data:
+        allowInputReference: true
+        allowOutputReference: false
+        label: 结束
+        nodeMeta: {aliasName: 结束节点, nodeType: 基础节点}
+        inputs:
+          - id: 6114496a-0feb-5da0-bdfd-d130fa44c0a8
+            name: result_json
+            schema:
+              type: string
+              value:
+                type: ref
+                content: {name: final_result_json, id: a994bab6-76dd-5351-bced-9c9d700786ba, nodeId: 'ifly-code::4367c7af-ec6c-58a7-89ff-76d610a04166'}
+                contentErrMsg: ''
+            nameErrMsg: ''
+            fileType: ''
+        outputs: []
+        nodeParam: {template: '', streamOutput: true, outputMode: 0}
+        updatable: false
+        status: ''
+        references: []
+        icon: https://oss-beijing-m8.openstorage.cn/pro-bucket/sparkBot/common/workflow/icon/end-node-icon.png
+        description: 工作流的结束节点，用于输出工作流运行后的最终结果。
+      dragging: false
+      selected: false
+  edges:
+    - {source: 'node-start::cdcb9af8-c217-5907-947a-6372619ec7b0', sourceHandle: '', target: 'ifly-code::63a14c7a-e358-5ccc-bf15-e337d69bbd6f', type: customEdge,
+      id: 'reactflow__edge-node-start::cdcb9af8-c217-5907-947a-6372619ec7b0-ifly-code::63a14c7a-e358-5ccc-bf15-e337d69bbd6f', markerEnd: {color: '#6356EA', type:
+          arrow}, data: {edgeType: curve}}
+    - {source: 'ifly-code::63a14c7a-e358-5ccc-bf15-e337d69bbd6f', sourceHandle: '', target: 'spark-llm::648efae8-f5bc-5714-916e-067b75d44e7a', type: customEdge,
+        id: 'reactflow__edge-ifly-code::63a14c7a-e358-5ccc-bf15-e337d69bbd6f-spark-llm::648efae8-f5bc-5714-916e-067b75d44e7a', markerEnd: {color: '#6356EA',
+          type: arrow}, data: {edgeType: curve}}
+    - {source: 'spark-llm::648efae8-f5bc-5714-916e-067b75d44e7a', sourceHandle: '', target: 'ifly-code::4367c7af-ec6c-58a7-89ff-76d610a04166', type: customEdge,
+        id: 'reactflow__edge-spark-llm::648efae8-f5bc-5714-916e-067b75d44e7a-ifly-code::4367c7af-ec6c-58a7-89ff-76d610a04166', markerEnd: {color: '#6356EA',
+          type: arrow}, data: {edgeType: curve}}
+    - {source: 'ifly-code::4367c7af-ec6c-58a7-89ff-76d610a04166', sourceHandle: '', target: 'node-end::9a8f268f-d174-5cac-bf34-fd6afb7eeee7', type: customEdge,
+        id: 'reactflow__edge-ifly-code::4367c7af-ec6c-58a7-89ff-76d610a04166-node-end::9a8f268f-d174-5cac-bf34-fd6afb7eeee7', markerEnd: {color: '#6356EA', type:
+          arrow}, data: {edgeType: curve}}

@@ -1,216 +1,281 @@
-# AGENTS.md
+# LearnFlow 个人维护与 Codex 工作准则
 
-## 0. 项目永久记忆
+本文是 LearnFlow 仓库级 Codex 指令。仓库采用个人维护、完成即提交并直接推送的方式，不再把 Issue、功能分支、PR 或多人评审作为日常开发门禁。适用于仓库根目录及所有尚未提供更具体 `AGENTS.md` 或 `AGENTS.override.md` 的子目录。
 
-- 本项目对应的 Obsidian 记忆索引为 `D:\obsidian\study\Codex永久记忆\项目\2\索引.md`。
-- 每个项目会话首次任务开始前，使用 `$project-memory` 读取全局索引和本项目索引，并按任务只加载必要记忆。
-- 若本项目最近 Codex 沟通晚于索引中的 `last_synced_at`，先将稳定结论同步到本项目记忆。
-- 任务产生长期有效的状态、决定、风险或交接结论时，结束前更新相应记忆文件；不要记录密钥、`.env` 值、私有用户数据或日志正文。
-- 该记忆只提供上下文，真实代码、最新测试和当前远端状态始终优先。
+目标不是限制实现创新，而是在快速迭代和双仓并行参考时仍维护同一套架构权威、接口契约、证据语义和验收标准。
 
-## 1. 项目定位
+## 1. 开始任何任务前
 
-- 产品名：知行课径。
-- 产品定位：面向计算机信息技术专业群的目标驱动型个性化学习智能体。
-- 用户目标可来自专业方向、课程、岗位、技能竞赛或自我提升。
-- 主闭环：目标澄清 -> 能力图谱 -> 初始测评 -> 薄弱点 -> 个性化路径 -> 学习/实操 -> 阶段测评 -> 纠错/复测 -> 画像更新。
-- Java 应用开发是当前首个成熟示范内容包，不是产品的最终范围。
-- 未具备正式能力包的方向只能提供参考规划或临时自测，不得宣称为正式能力诊断。
-- AI 负责理解与生成；判题、掌握度、前置依赖、证据写入和来源校验必须由确定性代码控制。
+Codex 必须先完成以下检查，再提出方案或修改文件：
 
-## 2. 技术栈
+1. 读取本文件和当前工作目录到仓库根目录之间所有适用的 `AGENTS.md`。
+2. 涉及 GitHub、提交、推送或双仓参考时，完整阅读 `docs/GITHUB_COLLABORATION.md`。
+3. 读取用户指定的任务说明；若同时提供 Issue 或 PR，则把它们作为补充上下文，提取目标、范围、验收标准和非目标。
+4. 执行 `git status -sb`，识别当前分支及已有未提交改动；已有改动默认属于用户，不得覆盖、删除或重置。
+5. 根据任务阅读最少但足够的权威资料。涉及架构或跨模块契约时，至少阅读：
+   - `docs/ARCHITECTURE_AUTHORITY.md`
+   - `docs/AGENT_ARCHITECTURE_GUIDE.md`
+   - `backend/app/services/architecture_registry.py`
+6. 涉及五核、学习者状态或证据写回时，继续阅读：
+   - `docs/FIVE_KERNEL_MEMORY_GRAPH.md`
+   - `backend/app/services/learning_runtime.py`
+   - `backend/app/services/memory_graph.py`
+7. 涉及学习状态快速获取模块时，完整阅读 `docs/LEARNER_STATE_DISCOVERY_AGENT_BRIEF.md`。
+8. 涉及比赛或 seeded demo 时，阅读 `docs/competition/README.md` 与 `docs/competition/DEMO_RUNBOOK.md`。
+
+如果用户的直接指令、外部参考与现有架构文档存在实质冲突，停止扩大修改范围，明确指出冲突并请求架构裁决。不得以私有实现绕过冲突。
+
+## 2. 架构事实与权威来源
+
+LearnFlow 的架构事实按以下顺序核对：
+
+1. `backend/app/services/architecture_registry.py`：机器可读的 Agent、五核、工具、产品技能、工作台、能力和重要事件清单。
+2. `docs/AGENT_ARCHITECTURE_GUIDE.md`：角色、上下文、证据和产品空间的规范语义。
+3. `backend/app/services/learning_runtime.py` 与 `backend/app/services/memory_graph.py`：事件归约、五核投影和记忆图谱的运行实现。
+4. 自动化测试：验证实现是否遵守上述契约。
+5. 领域文档与页面文档：只能细化，不得另建第二套权威。
+
+任何新增能力都必须融入这套权威，不能只在代码、提示词、前端常量或外部工作流中私下登记。
+
+## 3. 不可破坏的产品与架构约束
+
+### 三类主 Agent
+
+仓库只有三类主责任接口：
+
+- `tutor_agent`：意图、对话、Action、工作台协调和 handoff。
+- `learning_design_agent`：路线、内容、问题、评估规格和视觉产物。
+- `practice_agent`：提交、测试、判题、反馈、诊断追问和纠错呈现。
+
+具体领域 Agent 必须位于上述接口之后，不得新增与它们竞争用户控制权的第四个主 Agent。
+
+### 五核
+
+五核是学习者状态维度，不是五个 Agent：
+
+- `structure`：学习位置、依赖、路径和返回锚点。
+- `knowledge`：概念理解、缺口、问题、错误和误解证据。
+- `human`：明确偏好、负荷、节奏、挫败和支持需求。
+- `value`：目标、优先级、动机、兴趣和相关性。
+- `practice`：尝试、辅助等级、产物、反馈和迁移准备。
+
+唯一合法的权威写入链是：
+
+```text
+用户 / UI / Tool / Agent 行为
+  -> EvidenceEvent
+  -> five_kernel_reducer
+  -> KernelMutation
+  -> KernelState
+  -> MemoryFact -> MemoryModule -> MemoryClaim
+```
+
+任何 Agent、工具、工作台、外部 workflow 或 LLM 都不得直接写 `KernelState`，不得把生成内容直接视为掌握证据，也不得维护与五核并列的长期用户画像权威。
+
+### 确定性教学与证据
+
+- `RemediationStrategy`、评分、阶段跳转、通过条件和证据升级必须由确定性规则控制。
+- LLM 可以生成候选题目、讲解、措辞或摘要，但不能自行决定教学策略、掌握状态或长期记忆。
+- 答错、跳过、缺失输入和“不会”必须区分。
+- 有提示成功不得等同于独立成功；原题重做不得等同于变式迁移。
+- 一次答对不能直接宣称稳定掌握；一次答错不能据此推断情绪、人格、医学状态或固定学习风格。
+- “换种讲法 / 看步骤 / 看示例”的选择及无效讲法必须形成可检查的用户级证据。
+- 所有写入必须验证 learner、project、checkpoint、session 的 scope 与 ownership。
+- 重复请求必须幂等，不能重复计分、重复创建 Attempt 或重复写证据。
+- seeded demo 必须固定种子、使用隔离数据库，并在无 LLM、无网络情况下完成核心闭环。
+
+## 4. 架构维护边界
+
+### 维护域 A：主要架构、三类 Agent 与五核记忆
+
+权威维护范围包括：
+
+- 三类主 Agent 的请求、响应、身份和 handoff 契约。
+- 五核短期键、上下文投影、长期巩固门槛和状态迁移。
+- `EvidenceEvent`、确定性 reducer、Memory Graph 与可纠正历史。
+- learner ownership、幂等、证据等级和通过条件。
+- 架构注册表及其版本、digest 和漂移校验。
+
+### 维护域 B：工具、产品技能、工作台与重要事件
+
+主要维护范围包括：
+
+- Action Board handler、来源处理、RAG、生成器、执行器和外部 adapter。
+- 路线、教学产物、实践验证、纠错等产品能力的实现。
+- Tutor、项目、讲义、练习、纠错、画像、记忆和 demo 工作台。
+- 工具运行状态、页面行为、外部工作流和比赛资产。
+
+维护域 B 读取五核时只能消费有 scope 的只读投影。需要改变学习状态时，必须复用或提出登记过的 capability 和 EventContract，再通过统一事件入口写入。是否归约、写入哪些核以及能否长期巩固，由维护域 A 的确定性规则裁决。
+
+### 学习状态快速获取模块
+
+模块负责人对内部产品方案、算法、选题、判题、评估、追问、停止条件、UI 和测试拥有充分自主权，但其外部边界必须满足：
+
+- 输入是题目/任务上下文、有 scope 的五核投影与近期证据。
+- 输出是结构化判定、置信度、依据、追问建议和事件提案。
+- 只有已登记的 `EvidenceEvent` 可以进入五核链路。
+- 模块不得直接生成 `KernelMutation`，不得自行覆盖五核状态。
+- 追问必须有预算和停止条件，且摸底追问不得泄露答案、污染后续证据。
+- 在线模型只能增强生成和表达；离线 seeded 模式必须可以验收核心行为。
+
+## 5. 共享契约的修改协议
+
+以下属于架构热点，修改时必须在提交说明或最终报告中声明 `Contract impact`：
+
+- `backend/app/services/architecture_registry.py`
+- `backend/app/services/learning_runtime.py`
+- `backend/app/services/memory_graph.py`
+- `backend/app/models/learning.py`
+- `backend/app/api/architecture.py`
+- `docs/ARCHITECTURE_AUTHORITY.md`
+- `docs/AGENT_ARCHITECTURE_GUIDE.md`
+- 五核、EvidenceEvent、Action Board、RemediationStrategy 的 schema 或状态机
+
+修改共享契约时必须同时：
+
+1. 说明现有契约为何不足。
+2. 给出向后兼容性或迁移方案。
+3. 更新注册表、实现、测试和对应文档，不能只改其中一处。
+4. 为稳定 ID、schema version 或 registry version 的变化给出理由。
+5. 运行架构注册漂移检查和相关回归测试，并在最终报告中明确兼容性影响。
+
+仅增加讲法、模型供应商、外部 workflow adapter 或 UI 表达时，不应改变五核和 EvidenceEvent 的语义。
+
+## 6. GitHub 直接推送流程
+
+### 默认发布授权
+
+- 用户明确要求“修改、实现、修复、增加、删除或更新”仓库内容时，视为同时授权 Codex 在完成验证后 commit 并直接 push 当前分支，无需再次询问，也无需创建 Issue 或 PR。
+- 用户只要求分析、诊断、讲解、评审或报告状态时，不得据此修改文件、commit 或 push。
+- 用户明确指定目标分支时以该分支为准；未指定时继续使用当前分支，不为了流程形式另建功能分支。
+- 当前分支是 `main` 时允许直接推送 `main`；当前分支是其他分支时直接推送该分支。不得擅自把一个分支合并或强推到另一个分支。
+
+### 提交与推送
+
+1. 开工和提交前执行 `git status -sb`，保留所有任务范围外的已有改动。
+2. 推送前执行 `git fetch origin`，检查当前分支与远程跟踪分支的关系。
+3. 远程领先时使用普通 merge 同步并重新测试；禁止 rebase、force push、`git reset --hard` 和改写已发布历史。
+4. 提交应小而完整，使用 `feat:`、`fix:`、`docs:`、`refactor:`、`test:` 或 `chore:` 等 Conventional Commit 前缀。
+5. 提交前检查 `git diff`、`git diff --check`、暂存内容和 `git status -sb`；工作树混合时只暂存任务文件。
+6. 完成适用测试后执行 `git push origin HEAD`；推送失败时报告真实原因，不换用强制参数。
+7. 日常维护不创建或更新 PR，也不等待多人评审。只有用户明确要求 PR、代码评审或外部贡献流程时才使用它们。
+
+不得提交 `.env`、密钥、token、日常数据库、比赛生成数据库、模型权重、缓存、虚拟环境、`node_modules` 或本地日志。新配置只提交安全的 `.env.example` 占位符。
+
+## 7. 实现与登记要求
+
+新增工具、产品技能、工作台、能力或重要事件时，Codex 必须：
+
+1. 在 `architecture_registry.py` 声明稳定 ID、owner、origin、模式、五核读取范围和写入路径。
+2. 复用或新增 Action Board capability，并明确 side effect、确认策略和 evidence target。
+3. 对重要行为注册 EventContract；写回统一经过 `record_event()`。
+4. 若事件需要改变五核，由 reducer 增加确定性归约规则和测试。
+5. 外部 workflow 输出先校验为 LearnFlow artifact 或事件输入，不能直接决定策略或写五核。
+6. 更新架构、融合目录和必要的比赛文档。
+7. 提升注册表版本，并验证 registry digest/漂移检查。
+
+本地代码 Agent 必须作为 Tutor 所有的 `local_agent_broker` 工具登记，不能成为第四类主 Agent。Tutor 只提交任务语义，Broker 按已登记 Profile 的能力和优先级确定性选择；固定使用参数数组、隔离副本和两次确认。无法保证的联网边界必须标记“未受管”，不得伪装成断网。子 Agent 不能修改 `.learnflow`、数据库、学习对象或五核；其运行和测试结果不是学习证据。
+
+如果只完成运行实现而没有登记、事件、测试或文档，应视为尚未完成。
+
+## 8. 测试与验收
+
+按修改范围运行最小充分测试；直接推送前运行全部适用检查。
+
+### 文档或任意修改
+
+```bash
+git diff --check
+```
+
+### 后端
+
+```bash
+cd backend
+venv/bin/python -m pytest -q
+```
+
+### 架构注册表
+
+```bash
+cd backend
+venv/bin/python -m pytest tests/test_architecture_registry.py -q
+```
+
+### 纠错闭环
+
+```bash
+cd backend
+venv/bin/python -m pytest tests/test_remediation.py -q
+```
 
 ### 前端
 
-- 原生 HTML、CSS、JavaScript，无 React/Vue 构建链。
-- 主入口：`frontend/agent.html`，根路径 `/` 由后端映射到该文件。
-- 旧学习中心：`frontend/index.html`，仅保留兼容能力。
-- 通用前端逻辑：`frontend/app.js`、`frontend/api.js`。
-- 样式：`frontend/styles.css`；优先复用 `:root` CSS 变量。
-- 本地依赖：`frontend/vendor/marked.min.js`、`frontend/vendor/katex/`、`frontend/vendor/lucide.min.js`。
-- 前端由后端同源托管，不要通过 `file:///` 打开页面。
-
-### 后端与数据
-
-- Python 3.11+，后端主要使用 Python 标准库。
-- 服务入口：`backend/server.py`，默认监听 `127.0.0.1:4173`。
-- 持久化：SQLite；运行库路径由 `APP_DATABASE` 控制。
-- 领域存储与证据：`backend/domain.py`。
-- 目标解析/路径逻辑：`backend/goal_engine.py`、`backend/data/goal_graph.py`。
-- 内容资产：`backend/data/knowledge_seed.py`、`diagnosis_bank.py`、`error_cards.py`。
-- 学习者状态发现：`backend/learner_discovery/`。
-- 检索：SQLite FTS5；联网资料只允许可信来源，并保留原始 URL/定位信息。
-
-### 智能工作流
-
-- 使用讯飞星辰工作流 OpenAPI，开发/测试可使用本地 mock。
-- 当前工作流位于 `workflows/current/`：目标规划、测评出题、学习讲解、纠错讲解、画像、推荐、对话问答。
-- 工作流输入使用 `AGENT_USER_INPUT` 承载序列化业务 JSON。
-- 生成类能力放在工作流；题目校验、判题、路径依赖、数值聚合和持久化留在后端。
-- 任何工作流结构变更都要同步其独立调试数据和后端解析契约。
-
-## 3. 目录结构
-
-```text
-backend/                       后端、领域逻辑、SQLite 与单元测试
-  data/                        能力图谱、知识条目、题库、错误卡
-  learner_discovery/           学习者状态发现子系统
-frontend/                      Web 页面、样式、交互与本地前端依赖
-  assets/                      图片等静态资源
-  vendor/                      固定版本第三方前端库
-workflows/current/             当前有效的星辰工作流资产
-  debug-data/                  每条工作流一份 JSON 调试数据
-workflow-nodes/                工作流自定义节点源码
-docs/                          过程设计和专项说明（通常不提交）
-references/                    外部参考项目/材料，只读使用
-prototype/                     原型，不是正式页面入口
-tools/                         构建、校验和辅助工具
-test-screenshots/              浏览器测试生成截图
-demo-output/、eval-output/     演示与评估产物
-_archive/                      历史归档，只读
+```bash
+cd frontend
+npm run build
 ```
 
-新增正式代码应进入 `backend/` 或 `frontend/`；不要继续向根目录堆放临时脚本。
+### Seeded demo
 
-## 4. 命名规范
-
-### Python
-
-- 文件、函数、变量：`snake_case`。
-- 类：`PascalCase`。
-- 常量：`UPPER_SNAKE_CASE`。
-- 私有辅助函数以 `_` 开头。
-- ID 使用稳定业务前缀，如 `KN_`、`GOAL-`、`ASSESS-`、`ATTEMPT-`。
-- 类型注解沿用 `dict[str, Any]`、`list[str]` 等 Python 3.11 写法。
-- 时间统一使用带时区 ISO 8601；不要存无时区本地时间。
-
-### JavaScript、HTML、CSS
-
-- JavaScript 变量和函数：`camelCase`；常量可用 `UPPER_SNAKE_CASE`。
-- CSS 类名：`kebab-case`；新颜色和尺寸优先定义为 CSS 变量。
-- DOM `id` 必须唯一且语义明确，不使用无意义缩写。
-- API JSON 字段统一使用 `snake_case`，不要在前后端之间引入第二套命名。
-- 事件名使用 `kebab-case`，例如 `workflow-request`。
-- 用户可见文案使用简体中文；内部状态值保持稳定英文枚举。
-
-### 数据、工作流与文档
-
-- 知识点 ID、目标 ID 一经被数据引用不得随意改名。
-- 工作流文件使用清晰中文业务名；不要新增“最终版”“新新版本”等文件名。
-- 每条工作流仅保留一份对应调试 JSON，文件名与工作流名一致。
-- 正式知识条目必须包含来源、定位符、来源类型和审核状态。
-- AI 生成内容不得写回权威知识库，必须带“AI 生成”标识。
-
-## 5. 禁止或限制修改
-
-除非用户明确要求，以下内容不得修改、移动或删除：
-
-- `比赛方案_XA-202603_智能体开发比赛.md`：比赛原始依据。
-- `references/`、`_archive/`：外部参考和历史证据。
-- `frontend/vendor/`：固定第三方依赖；升级必须说明版本、来源与兼容性。
-- `backend/.env`：本地私密配置；不得读取后输出、提交或复制其中密钥。
-- `backend/data/*.db*`、`*.sqlite`：运行数据；不得作为源码编辑或提交。
-- `server.out.log`、`server.err.log`、`test-report.*`、`test-screenshots/`：生成产物，不手工维护。
-- `.git/`：不得直接修改。
-
-以下内容只在相关任务中修改：
-
-- `workflows/current/*.yml`：修改后必须同步调试数据、输入输出契约和远程联调记录。
-- `backend/data/knowledge_seed.py`：不得加入无来源 AI 内容；来源占位不能冒充已核实页码。
-- `backend/data/diagnosis_bank.py`：修改答案或映射时必须补判题/归因测试。
-- `backend/data/goal_graph.py`：修改节点 ID 或依赖前先检查历史数据兼容性。
-- `frontend/index.html`：旧入口；新 Agent 页面需求默认修改 `frontend/agent.html`。
-- 核心定稿文档：实现发生变化时才同步更新，不用文档改写代替代码实现。
-
-工作区可能已有用户未提交修改。开始前必须运行 `git status --short`，不得覆盖、回退或格式化无关改动。
-
-## 6. 修改前检查清单
-
-1. 阅读本文件以及目标目录下更深层的 `AGENTS.md`（如以后新增）。
-2. 运行 `git status --short`，识别用户已有改动和未跟踪文件。
-3. 用 `rg` 找到真实入口、调用方、数据结构和测试；不要只依据旧文档推断。
-4. 确认需求属于正式支持方向、试验支持方向还是通用咨询，避免伪造正式能力结论。
-5. 区分用户数据、权威知识、AI 生成内容和系统推断，并确定各自能否写入画像。
-6. 涉及目标/路径时检查能力图谱、前置依赖、版本和目标完成标准。
-7. 涉及测评时检查题目来源、唯一答案、知识点映射、难度、审核状态和证据权重。
-8. 涉及画像时检查每个数字能否追溯到真实事件，禁止固定样例冒充真实统计。
-9. 涉及工作流时检查 `AGENT_USER_INPUT` 输入、结束节点 JSON、失败降级和本地解析器。
-10. 涉及 API 时检查鉴权、CORS、错误码、幂等、SQLite 迁移和旧前端兼容性。
-11. 涉及代码运行时检查超时、输出限制、文件隔离和命令注入风险；当前执行器仅是演示级沙箱。
-12. 涉及联网内容时检查域名白名单、可核验 URL、来源展示和失败时诚实降级。
-13. 涉及密钥时只使用环境变量；不得把真实 Key、Secret、Token 写入源码、测试数据或日志。
-14. 明确最小改动范围和对应测试，再开始编辑。
-
-## 7. 实现规则
-
-- 优先修复根因，保持改动小而聚焦；不要顺手重构无关模块。
-- 保留现有 API 和数据兼容性；确需破坏性变更时先增加迁移或兼容层。
-- 所有正式能力结论必须可追溯到 `source_event_ids`、文档来源或版本化规则。
-- AI 不负责最终判分，不得用模型自由文本直接更新掌握度。
-- 网络/工作流失败必须返回明确降级状态，不得伪造搜索结果、来源或成功响应。
-- 新方向按“目标标准、能力图谱、知识库、审核题库、实操 Rubric、错误模式”能力包接入。
-- 不引入大型框架或新依赖，除非任务确实需要并说明维护、体积和安全成本。
-- 修改数据库结构时使用幂等迁移，兼容已有 SQLite 数据。
-- 修改前端交互时检查多项目独立会话、多标签、空工作区和项目折叠行为。
-- 不创建重复工作流、重复调试数据或同功能平行实现。
-
-## 8. 测试命令
-
-### 快速检查
-
-```powershell
-python -m py_compile backend\server.py backend\domain.py backend\goal_engine.py
-node --check frontend\app.js
-node --check frontend\api.js
+```bash
+bash start.sh demo
 ```
 
-若修改 `frontend/agent.html` 中的内联脚本，还需通过浏览器测试验证；不要假定 `node --check` 已覆盖 HTML 内联代码。
+随后按照 `docs/competition/DEMO_RUNBOOK.md` 验证 `/demo`、`/api/demo/status` 与 `/api/architecture/validate`。不要为了让测试通过而删除断言、跳过关键用例或把确定性逻辑改为模型判断。
 
-### 后端定向测试
+最终报告必须区分：已执行且通过、已执行但失败、因环境原因未执行。不得声称未实际运行的测试已通过。
 
-```powershell
-python -m unittest backend.test_agent_projects
-python -m unittest backend.test_learner_discovery
-python -m unittest backend.test_backend
-```
+## 9. Codex 工作方式
 
-只改一个模块时先跑对应测试；修复测试失败时最多聚焦本任务相关问题，不处理无关失败。
+- 先理解现有实现，再修改；优先复用现有 registry、event gateway、reducer 和测试工具。
+- 使用搜索和小范围读取定位事实，不凭对话记忆猜测当前代码状态。
+- 保留用户已有的未提交改动，只修改任务范围内文件。
+- 不为追求“大而完整”擅自重写相邻模块。
+- 内部实现可以创新，但跨模块输出必须是版本化、结构化、可测试和可登记的。
+- 对高影响设计给出理由、替代方案和迁移影响；对普通局部实现自主推进。
+- 发现契约缺口时，可以提出更好的接口，但不得先绕过权威再补文档。
+- 诊断任务只报告原因；只有用户要求修复或任务明确包含实现时才改代码。
+- commit 和直接 push 按第 6 节的默认授权执行；合并分支、关闭 PR、删除、迁移数据或修改 GitHub 设置仍必须有明确授权。
 
-### 后端完整测试
+## 10. Code Review Rules
 
-```powershell
-python -m unittest discover -s backend -p "test_*.py"
-```
+Codex 审查 PR 时优先寻找会造成真实后果的问题。格式、lint 和其他机械检查交给 CI。
 
-### 浏览器回归
+### 架构与状态权威
 
-浏览器测试依赖 Playwright；只有环境已安装时运行：
+- 标记新增第四类主 Agent、第二套用户画像权威或绕过注册表的私有能力登记。
+- 标记 Agent、工具、UI、LLM 或外部 workflow 对 `KernelState` 的直接写入。
+- 标记绕过 `EvidenceEvent -> reducer -> KernelMutation` 链路的状态修改。
+- 标记 LLM 决定评分、RemediationStrategy、通过条件、掌握升级或长期记忆的行为。
 
-```powershell
-python test_browser.py
-```
+### 证据正确性
 
-测试已启动的服务：
+- 标记把生成文本、自述、一次答对、有提示成功或原题重做误当成高等级掌握/迁移证据。
+- 标记从普通错误直接推断情绪、人格、医学状态或固定学习风格。
+- 标记不能区分答错、跳过、缺失输入和不会作答的逻辑。
+- 标记缺少 scope ownership、幂等键、provenance、策略版本或可重放依据的重要写入。
 
-```powershell
-python test_browser.py --base-url http://127.0.0.1:4173
-```
+### 注册与兼容性
 
-### 本地启动与健康检查
+- 标记新增工具、产品技能、工作台、能力或重要事件却未更新 `architecture_registry.py` 的变化。
+- 标记共享 schema/API 发生破坏性变化却没有迁移、版本、测试和文档。
+- 标记模块维护自己的五核 allow-list、事件类型或 capability owner 副本而造成漂移。
 
-```powershell
-.\启动系统.ps1
-Invoke-RestMethod http://127.0.0.1:4173/api/health
-```
+### 闭环与可验收性
 
-默认访问 `http://127.0.0.1:4173/`。测试远程星辰工作流前，先用 mock 完成本地回归；远程测试不得输出凭据。
+- 标记答错—纠错—重做—变式—证据回写链条被截断、乱序或错误升级证据的情况。
+- 标记“换种讲法 / 看步骤 / 看示例”只改变 UI、没有记录无效/有效讲法证据的情况。
+- 标记 seeded demo 依赖网络、LLM、日常数据库或非确定性数据的变化。
+- 标记关键行为缺少回归测试，或测试没有验证状态、事件顺序和用户隔离。
 
-## 9. 完成标准
+## 11. 完成定义
 
-- 改动与用户需求直接对应，没有破坏其他项目会话或既有数据。
-- 相关定向测试通过；高风险改动再跑完整后端测试和浏览器回归。
-- 页面控制台无新增错误，API 失败有用户可理解的反馈。
-- 测评、路径、画像的结果可说明数据来源、知识来源和计算规则。
-- 新生成内容有 AI 标识；引用可以追溯，缺少来源时明确提示。
-- 不提交密钥、数据库、日志、截图和临时调试产物。
-- 若无法验证某项能力，在交付说明中明确写出未验证范围，不将推测描述为事实。
+任务只有同时满足以下条件才算完成：
+
+- 实现符合任务验收标准，没有无授权扩展。
+- 三类 Agent、五核、事件链和确定性策略边界保持成立。
+- 新能力已经登记，相关文档和版本已同步。
+- 适用测试、构建和 demo 已实际执行并如实报告。
+- diff 不包含秘密、本地数据或无关改动。
+- 最终报告记录提交、推送目标、测试证据、风险和必要的复现方式。

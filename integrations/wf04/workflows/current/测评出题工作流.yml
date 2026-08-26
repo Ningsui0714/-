@@ -1,0 +1,414 @@
+flowMeta:
+  name: 测评出题工作流
+  description: 按薄弱点与目标动态生成诊断选择题（生成上平台、校验留本地）
+  avatarIcon: ''
+  avatarColor: '#EAF7EE'
+  advancedConfig: '{"prologue":{"enabled":false},"needGuide":false}'
+  dslVersion: v1
+flowData:
+  nodes:
+    - id: 'node-start::acb4ab3a-776b-455d-a115-4a01df302a66'
+      type: 开始节点
+      position: {x: 0, y: 200}
+      positionAbsolute: {x: 0, y: 200}
+      width: 256
+      height: 74
+      data:
+        allowInputReference: false
+        allowOutputReference: true
+        label: 开始
+        nodeMeta: {aliasName: 开始节点, nodeType: 基础节点}
+        inputs: []
+        outputs:
+          - id: '5c2715db-d3c1-42ed-9bca-80b1f7a150f1'
+            name: AGENT_USER_INPUT
+            schema:
+              type: string
+              default: '包含 goal/student_id/weak_points/knowledge_list 的 JSON 字符串'
+            required: true
+            deleteDisabled: true
+            nameErrMsg: ''
+        nodeParam: {}
+        updatable: false
+        status: ''
+        icon: https://oss-beijing-m8.openstorage.cn/pro-bucket/sparkBot/common/workflow/icon/start-node-icon.png
+        description: 工作流的开启节点，用于定义流程调用所需的业务变量信息。
+      dragging: false
+      selected: false
+    - id: 'ifly-code::b007d85b-8c31-4c5a-9e79-07b4789d4bd1'
+      type: 代码
+      position: {x: 380, y: 200}
+      positionAbsolute: {x: 380, y: 200}
+      width: 362
+      height: 100
+      data:
+        allowInputReference: true
+        allowOutputReference: true
+        label: 解析出题请求
+        nodeMeta: {aliasName: 代码, nodeType: 工具}
+        inputs:
+          - id: 'd517bae9-2fcf-4df2-8835-2b579cf90c3e'
+            name: raw_input
+            schema:
+              type: string
+              value:
+                type: ref
+                content: {name: AGENT_USER_INPUT, id: '5c2715db-d3c1-42ed-9bca-80b1f7a150f1', nodeId: 'node-start::acb4ab3a-776b-455d-a115-4a01df302a66'}
+                contentErrMsg: ''
+            nameErrMsg: ''
+            fileType: ''
+        outputs:
+          - id: '088340e8-1bd8-4c2a-9687-18722bceeae8'
+            name: goal
+            schema: {type: string, default: ''}
+            nameErrMsg: ''
+            required: false
+          - id: 'b48c4d0e-0b25-4c5b-958f-e580b2a2887e'
+            name: student_id
+            schema: {type: string, default: ''}
+            nameErrMsg: ''
+            required: false
+          - id: '6bf584c3-95e3-45e9-8de4-148c99dfea03'
+            name: weak_points
+            schema: {type: string, default: ''}
+            nameErrMsg: ''
+            required: false
+          - id: 'cb7d60c5-d98a-4c6a-99a3-994208820105'
+            name: knowledge_list
+            schema: {type: string, default: ''}
+            nameErrMsg: ''
+            required: false
+        nodeParam:
+          code: |-
+            import json
+
+            def _parse_input(raw_input):
+                value = raw_input
+                for _ in range(3):
+                    if isinstance(value, dict):
+                        if "input" in value:
+                            value = value.get("input")
+                            continue
+                        if "AGENT_USER_INPUT" in value:
+                            value = value.get("AGENT_USER_INPUT")
+                            continue
+                        return value
+                    text = str(value or "").strip()
+                    if not text:
+                        return {}
+                    value = json.loads(text, strict=False)
+                if not isinstance(value, dict):
+                    raise ValueError("输入必须是 JSON 对象或 JSON 字符串")
+                return value
+
+            def main(raw_input):
+                try:
+                    data = _parse_input(raw_input)
+                    if not isinstance(data, dict):
+                        data = {}
+                except Exception:
+                    data = {}
+                goal = str(data.get("goal") or "daily").strip()
+                student_id = str(data.get("student_id") or "")
+                weak_points = data.get("weak_points") or []
+                if not isinstance(weak_points, list):
+                    weak_points = []
+                knowledge_list = data.get("knowledge_list") or []
+                if not isinstance(knowledge_list, list):
+                    knowledge_list = []
+                if not knowledge_list:
+                    knowledge_list = [
+                        {"knowledge_point_id": "KN_JAVA_CLASS", "knowledge_point_name": "类与对象"},
+                        {"knowledge_point_id": "KN_JAVA_ENCAPSULATION", "knowledge_point_name": "封装与访问控制"},
+                        {"knowledge_point_id": "KN_JAVA_INHERITANCE", "knowledge_point_name": "继承"},
+                        {"knowledge_point_id": "KN_JAVA_POLYMORPHISM", "knowledge_point_name": "多态"},
+                        {"knowledge_point_id": "KN_JAVA_COLLECTION", "knowledge_point_name": "集合框架"},
+                        {"knowledge_point_id": "KN_JAVA_EXCEPTION", "knowledge_point_name": "异常处理"},
+                        {"knowledge_point_id": "KN_JAVA_IO", "knowledge_point_name": "Java IO"},
+                    ]
+                return {
+                    "goal": goal,
+                    "student_id": student_id,
+                    "weak_points": json.dumps(weak_points, ensure_ascii=False),
+                    "knowledge_list": json.dumps(knowledge_list, ensure_ascii=False),
+                }
+          appId: 6545ca99
+          uid: '21880654528'
+          codeErrMsg: ''
+        updatable: false
+        status: ''
+        references: []
+        labelEdit: false
+        icon: https://oss-beijing-m8.openstorage.cn/SparkBotProd/icon/icon-wrapper-question.svg
+        description: 面向开发者提供 Python 代码执行能力。
+      dragging: false
+      selected: false
+    - id: 'spark-llm::1960e9bb-fac8-44d1-a63e-41771e4ce502'
+      type: 大模型
+      position: {x: 760, y: 200}
+      positionAbsolute: {x: 760, y: 200}
+      width: 362
+      height: 100
+      data:
+        allowInputReference: true
+        allowOutputReference: true
+        label: 生成测评题
+        nodeMeta: {aliasName: 大模型, nodeType: 基础节点}
+        inputs:
+          - id: '17c113c7-e526-4c68-9b5b-83c8517b72af'
+            name: goal
+            schema:
+              type: string
+              value:
+                type: ref
+                content: {name: goal, id: '088340e8-1bd8-4c2a-9687-18722bceeae8', nodeId: 'ifly-code::b007d85b-8c31-4c5a-9e79-07b4789d4bd1'}
+                contentErrMsg: ''
+            nameErrMsg: ''
+            fileType: ''
+          - id: '9346cf17-8bfc-4beb-8d3e-0c59d0a1d816'
+            name: student_id
+            schema:
+              type: string
+              value:
+                type: ref
+                content: {name: student_id, id: 'b48c4d0e-0b25-4c5b-958f-e580b2a2887e', nodeId: 'ifly-code::b007d85b-8c31-4c5a-9e79-07b4789d4bd1'}
+                contentErrMsg: ''
+            nameErrMsg: ''
+            fileType: ''
+          - id: '85854360-c1c3-4242-8b96-c1ec0b4b9019'
+            name: weak_points
+            schema:
+              type: string
+              value:
+                type: ref
+                content: {name: weak_points, id: '6bf584c3-95e3-45e9-8de4-148c99dfea03', nodeId: 'ifly-code::b007d85b-8c31-4c5a-9e79-07b4789d4bd1'}
+                contentErrMsg: ''
+            nameErrMsg: ''
+            fileType: ''
+          - id: '1defc4e0-396e-4a50-b2e1-6416284ed746'
+            name: knowledge_list
+            schema:
+              type: string
+              value:
+                type: ref
+                content: {name: knowledge_list, id: 'cb7d60c5-d98a-4c6a-99a3-994208820105', nodeId: 'ifly-code::b007d85b-8c31-4c5a-9e79-07b4789d4bd1'}
+                contentErrMsg: ''
+            nameErrMsg: ''
+            fileType: ''
+        outputs:
+          - id: '70229684-dbb2-4e90-a76d-d88a1e9398e8'
+            name: output
+            schema: {type: string, default: ''}
+            nameErrMsg: ''
+            required: false
+        nodeParam:
+          topK: 4
+          template: |-
+              诊断目标类型
+              {{goal}}
+
+              薄弱知识点（按此优先出题）
+              {{weak_points}}
+
+              目标覆盖的知识点列表
+              {{knowledge_list}}
+          enableChatHistoryV2: {isEnabled: false, rounds: 1}
+          auditing: default
+          llmId: 110
+          url: 'wss://spark-api.xf-yun.com/v4.0/chat'
+          domain: 4.0Ultra
+          maxTokens: 2048
+          temperature: 0.5
+          model: spark
+          serviceId: bm4
+          respFormat: 0
+          systemTemplate: |-
+              你是职业教育 Java 课程的测评出题专家，为"个性化自适应学习"诊断生成选择题。
+
+              出题规则：
+              1. 优先为 {{weak_points}} 中的薄弱知识点出题（每个薄弱点 1-2 题）；再用 {{knowledge_list}} 中的其他知识点补足目标题量（共 6-8 题，由 goal 决定：competition=8 题难度偏高、certification=8 题、daily=6 题难度基础）。
+              2. 每题必须满足：答案唯一且存在于 options；选项至少 3 个；绑定 knowledge_point_id（必须在 knowledge_list 中）；难度 1-3；解析说明答案依据。
+              3. 只输出一个合法 JSON 对象，格式如下（不输出 Markdown 代码块）：
+              {"questions": [{"question_id": "GEN-xxx", "knowledge_point_id": "KN_JAVA_XXX", "knowledge_point_name": "知识点名", "title": "题干", "options": {"a": "选项A", "b": "选项B", "c": "选项C"}, "answer": "b", "explanation": "解析", "difficulty": 1}]}
+              4. 题干围绕 Java 面向对象（类/封装/继承/多态/集合/异常/IO），贴合实训场景，不编造教材外结论。
+          appId: 6545ca99
+          uid: '21880654528'
+          patchId: '0'
+          llmIdErrMsg: ''
+          templateErrMsg: ''
+        retryConfig: {shouldRetry: true, errorStrategy: 0}
+        updatable: false
+        status: ''
+        references: []
+        labelEdit: false
+        icon: https://oss-beijing-m8.openstorage.cn/SparkBotProd/icon/icon-wrapper-model.svg
+        description: 根据输入的提示词调用选定的大模型并生成回答。
+      dragging: false
+      selected: false
+    - id: 'ifly-code::01fbe648-1456-43ae-9378-1001f9d5130f'
+      type: 代码
+      position: {x: 1140, y: 200}
+      positionAbsolute: {x: 1140, y: 200}
+      width: 362
+      height: 100
+      data:
+        allowInputReference: true
+        allowOutputReference: true
+        label: 校验题目
+        nodeMeta: {aliasName: 代码, nodeType: 工具}
+        inputs:
+          - id: 'dfdd83b8-9e6f-41cb-95a7-15963a68dfb0'
+            name: model_output
+            schema:
+              type: string
+              value:
+                type: ref
+                content: {name: output, id: '70229684-dbb2-4e90-a76d-d88a1e9398e8', nodeId: 'spark-llm::1960e9bb-fac8-44d1-a63e-41771e4ce502'}
+                contentErrMsg: ''
+            nameErrMsg: ''
+            fileType: ''
+          - id: 'c870733b-85a7-46fb-8170-e57ed213c083'
+            name: goal
+            schema:
+              type: string
+              value:
+                type: ref
+                content: {name: goal, id: '088340e8-1bd8-4c2a-9687-18722bceeae8', nodeId: 'ifly-code::b007d85b-8c31-4c5a-9e79-07b4789d4bd1'}
+                contentErrMsg: ''
+            nameErrMsg: ''
+            fileType: ''
+          - id: '68a25557-8a74-42ef-a948-5c6e44b1e8d8'
+            name: knowledge_list
+            schema:
+              type: string
+              value:
+                type: ref
+                content: {name: knowledge_list, id: 'cb7d60c5-d98a-4c6a-99a3-994208820105', nodeId: 'ifly-code::b007d85b-8c31-4c5a-9e79-07b4789d4bd1'}
+                contentErrMsg: ''
+            nameErrMsg: ''
+            fileType: ''
+        outputs:
+          - id: 'f071c3ed-6b47-45bc-8744-a4848c65570d'
+            name: final_result_json
+            schema: {type: string, default: ''}
+            nameErrMsg: ''
+            required: false
+        nodeParam:
+          code: |-
+            import json
+            import re
+
+            VALID_GOALS = {"competition": 8, "certification": 8, "daily": 6}
+
+            def main(model_output, goal, knowledge_list):
+                try:
+                    parsed_knowledge = json.loads(str(knowledge_list or "[]"), strict=False)
+                except Exception:
+                    parsed_knowledge = []
+                allowed_ids = {
+                    str(item.get("knowledge_point_id") or "").strip()
+                    for item in parsed_knowledge if isinstance(item, dict)
+                }
+                text = str(model_output or "").strip()
+                text = re.sub(r"^```(?:json)?\s*|\s*```$", "", text, flags=re.I)
+                start, end = text.find("{"), text.rfind("}")
+                if start < 0 or end < start:
+                    raise ValueError("大模型输出中未找到 JSON 对象")
+                try:
+                    payload = json.loads(text[start:end + 1], strict=False)
+                except Exception:
+                    payload = {}
+                questions = payload.get("questions") or []
+                if not isinstance(questions, list):
+                    questions = []
+                valid = []
+                used_question_ids = set()
+                for raw in questions:
+                    if not isinstance(raw, dict):
+                        continue
+                    title = str(raw.get("title") or "").strip()
+                    options = raw.get("options")
+                    answer = str(raw.get("answer") or "").strip().lower()
+                    kp_id = str(raw.get("knowledge_point_id") or "").strip()
+                    explanation = str(raw.get("explanation") or "").strip()
+                    try:
+                        difficulty = int(raw.get("difficulty", 1) or 1)
+                    except Exception:
+                        difficulty = 1
+                    if not title or not kp_id:
+                        continue
+                    if allowed_ids and kp_id not in allowed_ids:
+                        continue
+                    if not isinstance(options, dict) or len(options) < 3 or answer not in options:
+                        continue
+                    question_id = str(raw.get("question_id") or "GEN-" + kp_id[-8:]).strip()
+                    if not question_id or question_id in used_question_ids:
+                        continue
+                    used_question_ids.add(question_id)
+                    valid.append({
+                        "question_id": question_id,
+                        "knowledge_point_id": kp_id,
+                        "knowledge_point_name": str(raw.get("knowledge_point_name") or kp_id),
+                        "title": title,
+                        "options": options,
+                        "answer": answer,
+                        "explanation": explanation or "（未提供解析）",
+                        "difficulty": max(1, min(3, difficulty)),
+                        "source": "星辰出题工作流（本地校验通过）",
+                    })
+                valid = valid[:VALID_GOALS.get(str(goal).strip().lower(), 6)]
+                output = {
+                    "status": "ok",
+                    "goal": goal,
+                    "questions": valid,
+                    "dropped": len(questions) - len(valid),
+                    "generated_at": None,
+                }
+                return {"final_result_json": json.dumps(output, ensure_ascii=False, separators=(",", ":"))}
+          appId: 6545ca99
+          uid: '21880654528'
+          codeErrMsg: ''
+        updatable: false
+        status: ''
+        references: []
+        labelEdit: false
+        icon: https://oss-beijing-m8.openstorage.cn/SparkBotProd/icon/icon-wrapper-question.svg
+        description: 面向开发者提供 Python 代码执行能力。
+      dragging: false
+      selected: false
+    - id: 'node-end::d5479a2c-9da2-4e20-929d-099f6ac101ef'
+      type: 结束节点
+      position: {x: 1520, y: 200}
+      positionAbsolute: {x: 1520, y: 200}
+      width: 362
+      height: 74
+      data:
+        allowInputReference: true
+        allowOutputReference: false
+        label: 结束
+        nodeMeta: {aliasName: 结束节点, nodeType: 基础节点}
+        inputs:
+          - id: 'a3486fe6-2c0a-4426-92d8-d11b163458d0'
+            name: result_json
+            schema:
+              type: string
+              value:
+                type: ref
+                content: {name: final_result_json, id: 'f071c3ed-6b47-45bc-8744-a4848c65570d', nodeId: 'ifly-code::01fbe648-1456-43ae-9378-1001f9d5130f'}
+                contentErrMsg: ''
+            nameErrMsg: ''
+            fileType: ''
+        outputs: []
+        nodeParam: {template: '', streamOutput: true, outputMode: 0}
+        updatable: false
+        status: ''
+        references: []
+        icon: https://oss-beijing-m8.openstorage.cn/pro-bucket/sparkBot/common/workflow/icon/end-node-icon.png
+        description: 工作流的结束节点，用于输出工作流运行后的最终结果。
+      dragging: false
+      selected: false
+  edges:
+    - {source: 'node-start::acb4ab3a-776b-455d-a115-4a01df302a66', sourceHandle: '', target: 'ifly-code::b007d85b-8c31-4c5a-9e79-07b4789d4bd1', type: customEdge, id: 'reactflow__edge-node-start::acb4ab3a-776b-455d-a115-4a01df302a66-ifly-code::b007d85b-8c31-4c5a-9e79-07b4789d4bd1', markerEnd: {color: '#6356EA', type: arrow}, data: {edgeType: curve}}
+    - {source: 'ifly-code::b007d85b-8c31-4c5a-9e79-07b4789d4bd1', sourceHandle: '', target: 'spark-llm::1960e9bb-fac8-44d1-a63e-41771e4ce502', type: customEdge, id: 'reactflow__edge-ifly-code::b007d85b-8c31-4c5a-9e79-07b4789d4bd1-spark-llm::1960e9bb-fac8-44d1-a63e-41771e4ce502', markerEnd: {color: '#6356EA', type: arrow}, data: {edgeType: curve}}
+    - {source: 'spark-llm::1960e9bb-fac8-44d1-a63e-41771e4ce502', sourceHandle: '', target: 'ifly-code::01fbe648-1456-43ae-9378-1001f9d5130f', type: customEdge, id: 'reactflow__edge-spark-llm::1960e9bb-fac8-44d1-a63e-41771e4ce502-ifly-code::01fbe648-1456-43ae-9378-1001f9d5130f', markerEnd: {color: '#6356EA', type: arrow}, data: {edgeType: curve}}
+    - {source: 'ifly-code::01fbe648-1456-43ae-9378-1001f9d5130f', sourceHandle: '', target: 'node-end::d5479a2c-9da2-4e20-929d-099f6ac101ef', type: customEdge, id: 'reactflow__edge-ifly-code::01fbe648-1456-43ae-9378-1001f9d5130f-node-end::d5479a2c-9da2-4e20-929d-099f6ac101ef', markerEnd: {color: '#6356EA', type: arrow}, data: {edgeType: curve}}

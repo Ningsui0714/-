@@ -1,0 +1,47 @@
+# ---------- 开发工具与缓存 ----------
+.reasonix/
+.hermes/
+reasonix.toml
+vision.cjs
+.pytest_cache/
+__pycache__/
+*.pyc
+
+# ---------- 过程性产物（改动记录、步骤、归档、测试产物，不上传） ----------
+docs/
+references/
+_archive/
+tools/
+workflow-nodes/
+workflows/history/
+workflows/current/debug-data-*/
+test-screenshots/
+test_browser.py
+test_support.py
+test-report.json
+test-report.md
+migration-manifest.csv
+server.out.log
+server.err.log
+
+# ---------- 根目录过程性文档：只保留核心文档 ----------
+/*.md
+!/比赛方案_XA-202603_智能体开发比赛.md
+!/项目介绍.md
+!/知识库_Java岗位_星辰上传版.md
+!/DIRECTORY_GUIDE.md
+!/AGENTS.md
+
+# ---------- 敏感/运行时文件 ----------
+.env
+.env.bak
+backend/data/*.db
+backend/data/*.db-shm
+backend/data/*.db-wal
+backend/data/*.sqlite
+
+# ---------- 临时产物 ----------
+tmp/
+
+# ---------- 本地运行数据（不上传） ----------
+data/

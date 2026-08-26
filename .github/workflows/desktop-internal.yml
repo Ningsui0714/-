@@ -1,0 +1,77 @@
+name: Desktop internal packages
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - "main"
+      - "codex/**"
+    paths:
+      - "backend/**"
+      - "frontend/**"
+      - "desktop/**"
+      - ".github/workflows/desktop-internal.yml"
+
+jobs:
+  build-desktop:
+    name: ${{ matrix.name }} internal package
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: macOS
+            os: macos-14
+          - name: Windows
+            os: windows-2022
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: |
+            backend/requirements.txt
+            desktop/requirements-build.txt
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+          cache-dependency-path: |
+            frontend/package-lock.json
+            desktop/package-lock.json
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - name: Install Python dependencies
+        run: python -m pip install -r backend/requirements.txt -r desktop/requirements-build.txt
+
+      - name: Install frontend and desktop dependencies
+        shell: bash
+        run: |
+          npm --prefix frontend ci
+          npm --prefix desktop ci
+
+      - name: Backend contract tests
+        working-directory: backend
+        env:
+          PYTHONPATH: .
+        run: python -m pytest -q tests/test_workspace.py tests/test_tutor.py tests/test_local_agent_broker.py tests/test_architecture_registry.py
+
+      - name: Frontend production build
+        run: npm --prefix frontend run build
+
+      - name: Build FastAPI sidecar
+        run: npm --prefix desktop run build:sidecar
+
+      - name: Build unsigned internal desktop package
+        run: npm --prefix desktop run build
+
+      - name: Upload internal package
+        uses: actions/upload-artifact@v4
+        with:
+          name: learnflow-${{ matrix.name }}-internal
+          path: desktop/src-tauri/target/release/bundle/**
+          if-no-files-found: error

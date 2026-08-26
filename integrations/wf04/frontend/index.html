@@ -1,0 +1,1281 @@
+﻿<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="description" content="职业教育个性化学习与测验讲解演示前端" />
+    <title>知行课径 - 个性化学习中心</title>
+    <link rel="stylesheet" href="styles.css" />
+    <link rel="stylesheet" href="vendor/katex/katex.min.css" />
+  </head>
+  <body>
+    <div class="app-shell">
+      <header class="topbar">
+        <div class="brand">
+          <span class="brand-mark" aria-hidden="true"><i data-lucide="route"></i></span>
+          <span class="brand-copy">
+            <strong>知行课径</strong>
+            <small>Java 面向对象程序设计实训</small>
+          </span>
+        </div>
+        <div class="topbar-context">
+          <span class="sync-state" id="connection-status"><i data-lucide="cloud-check"></i> 正在连接学习服务</span>
+          <button class="icon-button" type="button" id="notifications-button" title="通知" aria-label="通知" aria-expanded="false" aria-controls="notifications-panel">
+            <i data-lucide="bell"></i>
+            <span class="notification-dot" id="notification-dot" aria-hidden="true"></span>
+          </button>
+          <button class="profile-button" type="button" id="profile-button" aria-label="学生账户" aria-expanded="false" aria-controls="profile-panel">
+            <span class="avatar">林</span>
+            <span class="profile-identity"><span class="profile-name">林同学</span><small id="topbar-student-id">STU-DEMO-001</small></span>
+            <i data-lucide="chevron-down"></i>
+          </button>
+          <section class="topbar-popover notification-panel" id="notifications-panel" hidden aria-label="通知列表">
+            <div class="popover-heading"><strong>通知</strong><span id="notification-count">0 条未读</span></div>
+            <div class="popover-list" id="notification-list"><p>正在读取通知…</p></div>
+          </section>
+          <section class="topbar-popover profile-panel" id="profile-panel" hidden aria-label="学生账户信息">
+            <div class="profile-summary"><span class="avatar">林</span><div><strong id="profile-display-name">林同学</strong><small id="profile-student-id">STU-DEMO-001</small></div></div>
+            <p id="profile-program-name">Java 面向对象程序设计实训</p>
+          </section>
+        </div>
+      </header>
+
+      <nav class="app-rail" aria-label="主要导航">
+        <button class="rail-button active" type="button" data-page-target="learning" title="学习中心">
+          <i data-lucide="book-open"></i>
+          <span>学习</span>
+        </button>
+        <button class="rail-button" type="button" data-page-target="bank" title="题库练习">
+          <i data-lucide="library"></i>
+          <span>题库</span>
+        </button>
+        <button class="rail-button" type="button" data-page-target="chat" title="智能对话">
+          <i data-lucide="message-square"></i>
+          <span>对话</span>
+        </button>
+      </nav>
+
+      <main class="workspace">
+        <section class="page active" id="learning-page" aria-labelledby="learning-title">
+          <div class="page-heading">
+            <div>
+              <div class="eyebrow"><i data-lucide="target"></i> 课程目标</div>
+              <h1 id="learning-title">完成 Java 面向对象成绩管理实训</h1>
+            </div>
+            <div class="goal-progress" role="progressbar" aria-label="总体学习进度" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0">
+              <div class="goal-progress-copy">
+                <span>总体进度</span>
+                <strong id="overall-progress-value">0%</strong>
+              </div>
+              <div class="progress-track"><span id="overall-progress-bar" style="width: 0%"></span></div>
+            </div>
+          </div>
+
+          <div class="learning-grid">
+            <aside class="path-panel" aria-label="学习路径">
+              <div class="panel-heading">
+                <div>
+                  <small>个性化路径</small>
+                  <h2 id="path-count">5 个学习节点</h2>
+                </div>
+                <button class="icon-button subtle" type="button" id="path-collapse-button" title="收起学习路径" aria-label="收起学习路径" aria-expanded="true" aria-controls="path-list">
+                  <i data-lucide="panel-left-close"></i>
+                </button>
+              </div>
+              <ol class="path-list" id="path-list">
+                <li class="path-item completed">
+                  <button type="button" data-lesson="0">
+                    <span class="path-state"><i data-lucide="check"></i></span>
+                    <span class="path-copy"><small>01 · 基础</small><strong>数据类型与缺考标记</strong></span>
+                    <span class="path-duration">完成</span>
+                  </button>
+                </li>
+                <li class="path-item completed">
+                  <button type="button" data-lesson="1">
+                    <span class="path-state"><i data-lucide="check"></i></span>
+                    <span class="path-copy"><small>02 · 代码</small><strong>类的定义与对象创建</strong></span>
+                    <span class="path-duration">完成</span>
+                  </button>
+                </li>
+                <li class="path-item current">
+                  <button type="button" data-lesson="2" aria-current="step">
+                    <span class="path-state">3</span>
+                    <span class="path-copy"><small>03 · 当前</small><strong>封装与访问控制</strong></span>
+                    <span class="path-duration">学习中</span>
+                  </button>
+                </li>
+                <li class="path-item locked">
+                  <button type="button" data-lesson="3">
+                    <span class="path-state"><i data-lucide="lock-keyhole"></i></span>
+                    <span class="path-copy"><small>04 · 边界</small><strong>继承与方法重写</strong></span>
+                    <span class="path-duration">待解锁</span>
+                  </button>
+                </li>
+                <li class="path-item locked">
+                  <button type="button" data-lesson="4">
+                    <span class="path-state"><i data-lucide="lock-keyhole"></i></span>
+                    <span class="path-copy"><small>05 · 迁移</small><strong>统计报告验证</strong></span>
+                    <span class="path-duration">待解锁</span>
+                  </button>
+                </li>
+              </ol>
+              <div class="path-note">
+                <i data-lucide="sparkles"></i>
+                <p><strong>路径已调整</strong><span>先修正封装访问，再处理继承与重写边界。</span></p>
+              </div>
+            </aside>
+
+            <article class="lesson-panel">
+              <div class="lesson-toolbar">
+                <div class="lesson-position" id="lesson-position">
+                  <span class="status-dot"></span>
+                  第 3 节 / 共 5 节
+                </div>
+                <div class="segmented" role="group" aria-label="教学方式">
+                  <button type="button" data-learning-mode="video" aria-pressed="false"><i data-lucide="play-square"></i>视频</button>
+                  <button class="active" type="button" data-learning-mode="text" aria-pressed="true"><i data-lucide="file-text"></i>图文</button>
+                </div>
+              </div>
+
+              <div class="lesson-title-row">
+                <div>
+                  <span class="topic-code" id="lesson-topic-code">KN_JAVA_ENCAPSULATION</span>
+                  <h2 id="lesson-heading">封装与访问控制</h2>
+                  <p id="lesson-objective">能够从同一有效记录集合计算分子和分母。</p>
+                </div>
+                <button class="icon-button subtle" type="button" id="favorite-button" title="收藏本节" aria-label="收藏本节" aria-pressed="false">
+                  <i data-lucide="bookmark"></i>
+                </button>
+              </div>
+
+              <div class="media-stage" id="media-stage">
+                <div class="media-placeholder" id="media-placeholder">
+                  <img src="assets/average-lesson-poster.png" alt="教学视频资源预览" />
+                  <button class="play-button" id="play-button" type="button" aria-label="播放教学视频">
+                    <i data-lucide="play"></i>
+                  </button>
+                </div>
+                <iframe
+                  id="video-frame"
+                  title="联网教学视频播放器"
+                  allow="autoplay; fullscreen; picture-in-picture"
+                  referrerpolicy="strict-origin-when-cross-origin"
+                  allowfullscreen
+                  hidden
+                ></iframe>
+                <div class="media-caption">
+                  <span id="media-title">正在等待带来源的联网教学视频</span>
+                </div>
+                <div class="media-controls">
+                  <span id="media-segment">系统只展示可核验来源，不生成虚构链接</span>
+                  <button class="text-button" type="button" id="media-detail-button" hidden><i data-lucide="info"></i>视频详情</button>
+                </div>
+              </div>
+
+              <section class="document-board" id="document-summary" aria-label="联网文档资料" hidden>
+                <div class="document-board-heading">
+                  <small>文档教学</small>
+                  <span id="document-board-count"></span>
+                </div>
+                <p class="document-gap" id="document-gap" hidden>
+                  本轮未检索到白名单内的官方文档，可继续使用下方图文讲解。
+                </p>
+                <div class="document-list" id="document-list"></div>
+              </section>
+
+              <div class="lesson-document" id="lesson-document">
+                <section class="diagnosis-strip">
+                  <span class="strip-icon"><i data-lucide="scan-search"></i></span>
+                  <div>
+                    <small>与诊断结果的连接</small>
+                    <p id="diagnosis-copy">你已经直接读取了私有成绩数组，但缺考 null 未排除。问题不在计算，而在绕过了封装的访问方式与统计口径。</p>
+                  </div>
+                </section>
+
+                <div id="content-blocks">
+                <section class="content-section">
+                  <div class="section-index">01</div>
+                  <div>
+                    <h3>先确定同一个有效数据集合</h3>
+                    <p>平均分不是先套公式，而是先确定通过哪个封装方法取得有效成绩。总和与数量必须来自同一个有效成绩集合。</p>
+                    <div class="formula-line">
+                      <span>有效成绩</span>
+                      <strong>[90, 60]</strong>
+                      <i data-lucide="arrow-right"></i>
+                      <span>平均分</span>
+                      <strong>(90 + 60) / 2 = 75</strong>
+                    </div>
+                  </div>
+                </section>
+
+                <section class="content-section comparison-section">
+                  <div class="section-index">02</div>
+                  <div class="wide-content">
+                    <h3>把两种口径并排看</h3>
+                    <div class="comparison-grid">
+                      <div class="comparison-column incorrect">
+                        <span><i data-lucide="x"></i> 本次做法</span>
+                        <code>(90 + 60) / 3 = 50</code>
+                        <p>分子排除了缺考，分母却仍包含缺考学生。</p>
+                      </div>
+                      <div class="comparison-column correct">
+                        <span><i data-lucide="check"></i> 一致口径</span>
+                        <code>(90 + 60) / 2 = 75</code>
+                        <p>总和与数量都来自 getter 返回的有效成绩集合。</p>
+                      </div>
+                    </div>
+                  </div>
+                </section>
+
+                <section class="content-section example-section" id="extra-example" hidden>
+                  <div class="section-index">03</div>
+                  <div>
+                    <h3>再看一个最小案例</h3>
+                    <p>成绩数组为 <code>{80, null, 100, null}</code>，过滤 null 后有效成绩是 <code>{80, 100}</code>，平均分 <code>180 / 2 = 90</code>。</p>
+                  </div>
+                </section>
+                </div>
+
+                <section class="source-line">
+                  <i data-lucide="library"></i>
+                  <span id="source-summary">依据：课程知识库《Java 面向对象程序设计实训》· KN_JAVA_ENCAPSULATION</span>
+                  <button type="button" id="source-button">查看来源</button>
+                </section>
+              </div>
+            </article>
+
+            <aside class="context-panel" id="context-panel">
+              <div class="context-panel-heading">
+                <small>教学策略与任务</small>
+                <button class="icon-button subtle" type="button" id="context-collapse-button" title="收起策略面板" aria-label="收起策略面板" aria-expanded="true" aria-controls="context-panel-body">
+                  <i data-lucide="panel-right-close"></i>
+                </button>
+              </div>
+              <div id="context-panel-body">
+              <section class="context-section">
+                <small>教学策略</small>
+                <h2 id="strategy-heading">为什么采用图文教学</h2>
+                <p id="strategy-reason">该知识点已练习 2 次。先用对照文档明确口径，再通过可交互图文逐步建立概念。</p>
+                <div class="strategy-tags" id="strategy-tags">
+                  <span>引导深度</span><span>对照示例</span><span>图文讲解</span>
+                </div>
+              </section>
+              <section class="context-section">
+                <small>本节任务</small>
+                <ul class="objective-list">
+                  <li><i data-lucide="check-circle-2"></i>识别有效记录集合</li>
+                  <li><i data-lucide="circle"></i>保持分子分母口径一致</li>
+                  <li><i data-lucide="circle"></i>通过阶段检查</li>
+                </ul>
+              </section>
+              <section class="context-section resource-summary" id="resource-summary">
+                <small>已审核资源</small>
+                <div class="resource-row">
+                  <span class="resource-icon"><i data-lucide="video"></i></span>
+                  <div><strong>成绩统计中的有效记录</strong><span>课程资源库 · 推荐片段 2:10</span></div>
+                </div>
+                <div class="resource-row">
+                  <span class="resource-icon document"><i data-lucide="file-check-2"></i></span>
+                  <div><strong>封装访问检查表</strong><span>实训指导书 · 第 3 节</span></div>
+                </div>
+              </section>
+              </div>
+            </aside>
+          </div>
+
+          <div class="action-dock" aria-label="学习操作">
+            <div class="action-status"><i data-lucide="brain-circuit"></i><span>本轮方式：<strong id="current-mode-label">互动图文</strong></span></div>
+            <div class="action-buttons">
+              <button class="secondary-button" type="button" id="not-understood"><i data-lucide="circle-help"></i>没看懂</button>
+              <button class="secondary-button" type="button" id="show-example"><i data-lucide="lightbulb"></i>举个例子</button>
+              <div class="action-more" id="action-more">
+                <button class="secondary-button more-trigger" type="button" id="more-actions" aria-haspopup="true" aria-expanded="false"><i data-lucide="more-horizontal"></i>更多</button>
+                <div class="more-menu" id="more-menu" hidden>
+                  <button class="more-menu-item" type="button" id="show-steps"><i data-lucide="list-ordered"></i>分步骤</button>
+                  <button class="more-menu-item" type="button" id="switch-explanation"><i data-lucide="refresh-cw"></i>换种讲法</button>
+                </div>
+              </div>
+              <button class="primary-button" type="button" id="start-check"><i data-lucide="list-checks"></i>阶段检查</button>
+            </div>
+          </div>
+        </section>
+
+        <section class="page" id="bank-page" aria-labelledby="bank-title">
+          <div class="page-heading">
+            <div>
+              <div class="eyebrow"><i data-lucide="library"></i> 题库练习</div>
+              <h1 id="bank-title">题单广场 · Java 核心知识点</h1>
+            </div>
+            <div class="bank-summary">
+              <span class="status-dot"></span>
+              <span>共 <strong id="bank-count">0</strong> 个题单</span>
+              <span class="bank-count-badge" id="bank-count-badge">0 题</span>
+            </div>
+          </div>
+
+          <!-- 视图一：题单列表（洛谷风格卡片网格） -->
+          <div class="bank-list-view" id="bank-list-view">
+            <div class="bank-category-row" id="bank-category-row">
+              <button class="bank-category-card active" type="button" data-bank-cat="all">
+                <strong>全部题单</strong>
+                <small>覆盖 7 个 Java 核心知识点</small>
+              </button>
+              <button class="bank-category-card" type="button" data-bank-cat="weak">
+                <strong>薄弱优先</strong>
+                <small>掌握度 &lt; 40%，优先补齐</small>
+              </button>
+              <button class="bank-category-card" type="button" data-bank-cat="partial">
+                <strong>巩固提升</strong>
+                <small>掌握度 40%–79%，查漏补缺</small>
+              </button>
+              <button class="bank-category-card" type="button" data-bank-cat="mastered">
+                <strong>进阶冲刺</strong>
+                <small>掌握度 ≥ 80%，拔高练习</small>
+              </button>
+              <button class="bank-category-card" type="button" data-bank-cat="wrong">
+                <strong>错题本</strong>
+                <small>答错的题目，可重做或去学习</small>
+              </button>
+            </div>
+            <div class="bank-sheet-grid" id="bank-sheet-grid">
+              <p class="empty-state">正在加载题单…</p>
+            </div>
+          </div>
+
+          <!-- 视图二：题单详情（题目列表） -->
+          <div class="bank-detail-view" id="bank-detail-view" hidden>
+            <div class="bank-detail-head">
+              <button class="secondary-button" type="button" id="bank-back"><i data-lucide="arrow-left"></i>返回题单广场</button>
+              <div class="bank-detail-title">
+                <span class="bank-detail-kp" id="bank-detail-kp">KN_JAVA_XXX</span>
+                <h2 id="bank-detail-name">知识点</h2>
+                <small id="bank-detail-count">共 0 道题</small>
+              </div>
+              <button class="icon-button subtle" type="button" id="bank-shuffle" title="换一批" aria-label="换一批"><i data-lucide="shuffle"></i></button>
+            </div>
+            <div class="bank-question-list" id="bank-question-list">
+              <p class="empty-state">正在加载题目…</p>
+            </div>
+          </div>
+        </section>
+
+        <section class="page" id="diagnosis-page" aria-labelledby="diagnosis-title">
+          <div class="page-heading">
+            <div>
+              <div class="eyebrow"><i data-lucide="scan-search"></i> 学情诊断</div>
+              <h1 id="diagnosis-title">选择目标，开始自适应诊断</h1>
+            </div>
+            <div class="diagnosis-status">
+              <span class="status-dot"></span>
+              <span>本轮诊断：<strong id="diagnosis-round-label">第 3 轮</strong></span>
+            </div>
+          </div>
+
+          <div class="diagnosis-grid">
+            <aside class="diagnosis-goal-panel">
+              <div class="panel-heading">
+                <div><small>学习目标</small><h2>选择本轮诊断方向</h2></div>
+              </div>
+              <div class="goal-card-list">
+                <button class="goal-card selected" type="button" data-goal="competition" aria-pressed="true">
+                  <span class="goal-card-icon"><i data-lucide="trophy"></i></span>
+                  <span class="goal-card-body">
+                    <strong>备战世界职业院校技能大赛</strong>
+                    <small>Java 程序设计赛项 · 对标国赛标准</small>
+                  </span>
+                  <span class="goal-card-badge">推荐</span>
+                </button>
+                <button class="goal-card" type="button" data-goal="certification" aria-pressed="false">
+                  <span class="goal-card-icon"><i data-lucide="award"></i></span>
+                  <span class="goal-card-body">
+                    <strong>1+X Java 应用开发认证</strong>
+                    <small>初级 · 知识体系全覆盖诊断</small>
+                  </span>
+                </button>
+                <button class="goal-card" type="button" data-goal="daily" aria-pressed="false">
+                  <span class="goal-card-icon"><i data-lucide="graduation-cap"></i></span>
+                  <span class="goal-card-body">
+                    <strong>日常技能提升</strong>
+                    <small>面向岗位能力图谱 · 查漏补缺</small>
+                  </span>
+                </button>
+              </div>
+              <div class="custom-goal-zone">
+                <div class="custom-goal-divider"><span>或输入你的学习目标</span></div>
+                <form class="custom-goal-form">
+                  <input class="custom-goal-input" type="text" placeholder="例如：想考 1+X Java 应用开发认证" maxlength="60" />
+                  <button class="custom-goal-submit" type="submit">智能识别</button>
+                </form>
+                <p class="custom-goal-result" hidden></p>
+              </div>
+              <div class="diagnosis-meta-strip">
+                <i data-lucide="info"></i>
+                <p>系统将根据所选目标匹配诊断题库，采用自适应难度调整策略。</p>
+              </div>
+            </aside>
+
+            <article class="diagnosis-main">
+              <div class="diagnosis-toolbar">
+                <div class="lesson-position">
+                  <span class="status-dot"></span>
+                  第 <strong id="diagnosis-q-index">4</strong> 题 / 共 <strong id="diagnosis-q-total">8</strong> 题
+                </div>
+                <div class="difficulty-meter" aria-label="当前题目难度">
+                  <span class="difficulty-label">难度</span>
+                  <span class="difficulty-dots">
+                    <span class="dot active"></span>
+                    <span class="dot active"></span>
+                    <span class="dot active"></span>
+                    <span class="dot"></span>
+                    <span class="dot"></span>
+                  </span>
+                  <span class="difficulty-text" id="difficulty-text">中等</span>
+                  <span class="difficulty-trend" id="difficulty-trend">较前题提升</span>
+                </div>
+              </div>
+
+              <div class="diagnosis-question">
+                <div class="diagnosis-question-meta">
+                  <span class="topic-code">KN_JAVA_ENCAPSULATION</span>
+                  <span class="diagnosis-tag">封装与访问控制</span>
+                  <span class="diagnosis-tag amber">高频考点</span>
+                </div>
+                <h2>给定 Student 类，以下哪种方式可以在外部类中安全获取有效成绩列表（排除缺考 null）？</h2>
+                <div class="diagnosis-code-preview">
+                  <code>public class Student {<br />&nbsp;&nbsp;private Integer[] scores;<br />&nbsp;&nbsp;private boolean isAbsent;<br /><br />&nbsp;&nbsp;public Integer[] getValidScores() {<br />&nbsp;&nbsp;&nbsp;&nbsp;return Arrays.stream(scores)<br />&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;.filter(Objects::nonNull)<br />&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;.toArray(Integer[]::new);<br />&nbsp;&nbsp;}<br />}</code>
+                </div>
+                <div class="diagnosis-options">
+                  <label class="check-option">
+                    <input type="radio" name="diagnosis-answer" value="a" />
+                    <span>A</span>
+                    <code>直接访问 stu.scores 并手动过滤 null</code>
+                  </label>
+                  <label class="check-option">
+                    <input type="radio" name="diagnosis-answer" value="b" />
+                    <span>B</span>
+                    <code>调用 stu.getValidScores() 获取已过滤的有效成绩</code>
+                  </label>
+                  <label class="check-option">
+                    <input type="radio" name="diagnosis-answer" value="c" />
+                    <span>C</span>
+                    <code>通过反射访问 private 字段 scores</code>
+                  </label>
+                </div>
+              </div>
+
+              <div class="diagnosis-feedback" id="diagnosis-feedback" hidden>
+                <div class="feedback-header">
+                  <span class="feedback-icon correct"><i data-lucide="check"></i></span>
+                  <div>
+                    <small>即时反馈</small>
+                    <strong>回答正确</strong>
+                  </div>
+                  <span class="feedback-meta">难度将提升</span>
+                </div>
+                <p>通过 getValidScores() 方法获取有效成绩集合，遵循了封装原则，确保分子分母来自同一数据源。该知识点已连续 2 次答对，掌握度从 60% 提升至 85%。</p>
+                <div class="feedback-source">
+                  <i data-lucide="library"></i>
+                  <span>依据：课程知识库《Java 面向对象程序设计实训》第 3 节 · 封装访问检查表</span>
+                </div>
+              </div>
+
+              <div class="diagnosis-summary" id="diagnosis-summary" hidden>
+                <div class="summary-heading"><i data-lucide="target"></i><strong>本轮诊断完成</strong></div>
+                <p class="summary-copy">诊断完成，已更新掌握度。</p>
+                <div class="summary-chips"></div>
+              </div>
+
+              <div class="diagnosis-actions">
+                <button class="secondary-button" type="button" id="diagnosis-skip"><i data-lucide="skip-forward"></i>跳过此题</button>
+                <button class="primary-button" type="button" id="diagnosis-submit"><i data-lucide="send"></i>提交并下一题</button>
+                <button class="primary-button" type="button" id="diagnosis-finish" hidden><i data-lucide="book-open"></i>去学习薄弱点</button>
+              </div>
+            </article>
+
+            <aside class="diagnosis-side">
+              <section class="diagnosis-side-section">
+                <small>知识点覆盖</small>
+                <div class="coverage-heatmap" id="coverage-heatmap">
+                  <div class="coverage-cell mastered" style="--cell-label:'封装'" title="封装与访问控制 · 掌握度 85%"><span>封装</span></div>
+                  <div class="coverage-cell partial" style="--cell-label:'继承'" title="继承与方法重写 · 掌握度 50%"><span>继承</span></div>
+                  <div class="coverage-cell weak" style="--cell-label:'多态'" title="多态与接口 · 掌握度 20%"><span>多态</span></div>
+                  <div class="coverage-cell mastered" style="--cell-label:'类'" title="类的定义 · 掌握度 90%"><span>类</span></div>
+                  <div class="coverage-cell partial" style="--cell-label:'异常'" title="异常处理 · 掌握度 55%"><span>异常</span></div>
+                  <div class="coverage-cell weak" style="--cell-label:'集合'" title="集合框架 · 掌握度 15%"><span>集合</span></div>
+                  <div class="coverage-cell mastered" style="--cell-label:'数据'" title="数据类型 · 掌握度 95%"><span>数据</span></div>
+                  <div class="coverage-cell untested" style="--cell-label:'IO'" title="文件IO · 未测试"><span>IO</span></div>
+                  <div class="coverage-cell untested" style="--cell-label:'线程'" title="多线程 · 未测试"><span>线程</span></div>
+                </div>
+                <div class="coverage-legend">
+                  <span class="legend-item"><span class="legend-dot mastered"></span>已掌握</span>
+                  <span class="legend-item"><span class="legend-dot partial"></span>部分</span>
+                  <span class="legend-item"><span class="legend-dot weak"></span>薄弱</span>
+                  <span class="legend-item"><span class="legend-dot untested"></span>未测</span>
+                </div>
+              </section>
+              <section class="diagnosis-side-section">
+                <small>本轮诊断进度</small>
+                <div class="diagnosis-round-progress">
+                  <svg viewBox="0 0 100 100" class="round-ring">
+                    <circle cx="50" cy="50" r="42" fill="none" stroke="var(--line)" stroke-width="6" />
+                    <circle cx="50" cy="50" r="42" fill="none" stroke="var(--green)" stroke-width="6" stroke-linecap="round" stroke-dasharray="263.9" stroke-dashoffset="131.95" transform="rotate(-90 50 50)" />
+                    <text x="50" y="48" text-anchor="middle" fill="var(--ink)" font-size="18" font-weight="700">50%</text>
+                    <text x="50" y="64" text-anchor="middle" fill="var(--muted)" font-size="10">4/8</text>
+                  </svg>
+                </div>
+                <div class="diagnosis-round-stats">
+                  <div class="round-stat"><span>已答对</span><strong>3</strong></div>
+                  <div class="round-stat"><span>已答错</span><strong>1</strong></div>
+                  <div class="round-stat"><span>已跳过</span><strong>0</strong></div>
+                </div>
+              </section>
+            </aside>
+          </div>
+        </section>
+
+        <section class="page" id="review-page" aria-labelledby="review-title">
+          <div class="page-heading review-heading">
+            <div>
+              <div class="eyebrow"><i data-lucide="clipboard-check"></i> 测验讲解</div>
+              <h1 id="review-title">成绩统计阶段测验</h1>
+            </div>
+            <div class="score-summary">
+              <span><strong id="review-score">6</strong>/<span id="review-max-score">10</span></span>
+              <div><b id="review-weak-count">发现 2 个薄弱知识点</b><small>已生成针对性讲解</small></div>
+            </div>
+          </div>
+
+          <div class="review-grid">
+            <aside class="question-panel">
+              <div class="panel-heading">
+                <div><small>题目导航</small><h2>3 道需处理</h2></div>
+                <button class="icon-button subtle" type="button" id="question-filter-button" title="筛选题目" aria-label="筛选题目" aria-expanded="false" aria-controls="question-filter-dialog"><i data-lucide="list-filter"></i></button>
+              </div>
+              <div class="question-list" id="question-list">
+                <button class="question-item active" type="button" data-question="q3" data-question-status="incorrect">
+                  <span class="question-number">03</span>
+                  <span><strong>封装与访问控制</strong><small>计算错误 · 0/3</small></span>
+                  <i data-lucide="chevron-right"></i>
+                </button>
+                <button class="question-item" type="button" data-question="q6" data-question-status="incorrect">
+                  <span class="question-number">06</span>
+                  <span><strong>空列表异常处理</strong><small>逻辑错误 · 1/3</small></span>
+                  <i data-lucide="chevron-right"></i>
+                </button>
+                <button class="question-item pending" type="button" data-question="q8" data-question-status="pending">
+                  <span class="question-number"><i data-lucide="message-circle-question"></i></span>
+                  <span><strong>信息需要补充</strong><small>等待题目描述</small></span>
+                  <i data-lucide="chevron-right"></i>
+                </button>
+              </div>
+              <div class="weakness-summary">
+                <small>知识点分布</small>
+                <div id="weakness-breakdown"></div>
+              </div>
+            </aside>
+
+            <article class="question-workspace" id="question-workspace">
+              <div class="question-meta"><span>第 3 题 · 计算题</span><span>知识点 KN_JAVA_ENCAPSULATION</span></div>
+              <h2>请补全 Student.averageScore()：排除缺考的 null 成绩，且不得直接访问私有数组。</h2>
+              <div class="dataset-row">
+                <span>张明 <strong>90</strong></span>
+                <span>李华 <strong class="absent">缺考</strong></span>
+                <span>王芳 <strong>60</strong></span>
+              </div>
+              <section class="answer-block student-answer">
+                <div><span><i data-lucide="user-round"></i>你的答案</span><b>系统检测到口径不一致</b></div>
+                <code>average = (90 + 60) / 3&nbsp;&nbsp;# 50.0</code>
+                <p><mark>分母 3</mark> 包含了已经从分子中排除的缺考记录。</p>
+              </section>
+              <section class="answer-block expected-answer">
+                <div><span><i data-lucide="badge-check"></i>正确要求</span><b>同一有效记录集合</b></div>
+                <code>valid_scores = [90, 60]<br />average = sum(valid_scores) / len(valid_scores)&nbsp;&nbsp;# 75.0</code>
+              </section>
+              <button class="review-source" id="review-source-button" type="button"><i data-lucide="book-marked"></i><span>诊断依据：错误卡 PY_AGG_INVALID_DENOMINATOR</span></button>
+            </article>
+
+            <aside class="explanation-panel" id="explanation-panel">
+              <div class="explanation-heading">
+                <div><small>个性化讲解</small><h2>问题在封装与访问方式，不在加法</h2></div>
+                <div class="segmented compact" role="group" aria-label="错题讲解方式">
+                  <button class="active" type="button" data-review-mode="text" title="图文讲解" aria-label="图文讲解" aria-pressed="true"><i data-lucide="file-text"></i></button>
+                  <button type="button" data-review-mode="video" title="视频讲解" aria-label="视频讲解" aria-pressed="false"><i data-lucide="play-square"></i></button>
+                </div>
+              </div>
+              <div class="explanation-flow">
+                <div class="flow-step"><span>1</span><div><strong>先确定有效成绩</strong><p>缺考不参与统计，有效成绩只有 90 和 60。</p></div></div>
+                <div class="flow-step"><span>2</span><div><strong>总和与数量来自同一列表</strong><p>总和是 150，有效成绩数量是 2。</p></div></div>
+                <div class="flow-step"><span>3</span><div><strong>再进行平均值计算</strong><p><code>150 / 2 = 75</code>，而不是除以学生总人数。</p></div></div>
+              </div>
+              <section class="retry-hint">
+                <i data-lucide="rotate-ccw"></i>
+                <div><strong>重做检查点</strong><p>先写出有效成绩列表，再分别从它计算总和与数量。</p></div>
+              </section>
+              <section class="review-video-card" id="review-video-card" hidden>
+                <small>联网视频讲解</small>
+                <strong id="review-video-title">等待视频资源</strong>
+                <span id="review-video-source">来源待确认</span>
+                <p id="review-video-reason">系统会根据当前错误知识点检索视频，并保留原始来源。</p>
+                <button class="text-button" type="button" id="review-video-detail" hidden><i data-lucide="info"></i>视频详情</button>
+              </section>
+
+              <section class="review-documents" id="review-documents" hidden>
+                <small>联网文档资料</small>
+                <div id="review-document-list" class="document-list"></div>
+                <p class="document-gap" id="review-document-gap" hidden>本轮未检索到白名单内的官方文档。</p>
+              </section>
+              <div class="explanation-actions">
+                <button class="secondary-button" type="button" id="review-switch"><i data-lucide="refresh-cw"></i>换种讲法</button>
+                <button class="secondary-button" type="button" id="retry-question"><i data-lucide="pencil-line"></i>重做原题</button>
+                <button class="secondary-button" type="button" id="variant-question"><i data-lucide="shuffle"></i>变式题</button>
+                <button class="primary-button full" type="button" id="learn-topic"><i data-lucide="book-open-check"></i>系统学习该知识点</button>
+              </div>
+            </aside>
+          </div>
+        </section>
+
+        <section class="page utility-page" id="records-page" aria-labelledby="records-title">
+          <div class="page-heading">
+            <div><div class="eyebrow"><i data-lucide="history"></i> 学习轨迹</div><h1 id="records-title">学习记录</h1></div>
+            <button class="secondary-button" type="button" id="refresh-records"><i data-lucide="refresh-cw"></i>刷新</button>
+          </div>
+          <div class="records-tabs" role="tablist" aria-label="记录视图">
+            <button class="records-tab active" type="button" role="tab" aria-selected="true" data-records-tab="explanations">讲解会话</button>
+            <button class="records-tab" type="button" role="tab" aria-selected="false" data-records-tab="attempts">练习作答</button>
+            <button class="records-tab" type="button" role="tab" aria-selected="false" data-records-tab="growth">成长曲线</button>
+          </div>
+          <div class="records-layout">
+            <section class="records-section" id="records-pane-explanations" aria-labelledby="explanation-records-title">
+              <div class="section-heading"><h2 id="explanation-records-title">讲解会话</h2><span id="explanation-record-count">0 条</span></div>
+              <div class="record-list" id="explanation-record-list"><p class="empty-state">暂无讲解记录</p></div>
+            </section>
+            <section class="records-section" id="records-pane-attempts" aria-labelledby="attempt-records-title" hidden>
+              <div class="section-heading"><h2 id="attempt-records-title">练习作答</h2><span id="attempt-record-count">0 条</span></div>
+              <div class="record-list" id="attempt-record-list"><p class="empty-state">暂无练习记录</p></div>
+            </section>
+            <section class="records-section" id="records-pane-growth" aria-labelledby="growth-records-title" hidden>
+              <div class="section-heading"><h2 id="growth-records-title">掌握度成长曲线</h2><span id="growth-record-count"></span></div>
+              <div id="growth-chart" class="growth-chart">
+                <div class="growth-empty" id="growth-empty">
+                  <i data-lucide="chart-line"></i>
+                  <p class="empty-state">完成至少 2 次练习后生成成长曲线</p>
+                  <button class="secondary-button" type="button" id="growth-go-practice">去做练习</button>
+                </div>
+              </div>
+            </section>
+          </div>
+        </section>
+
+        <section class="page" id="growth-page" aria-labelledby="growth-title">
+          <div class="page-heading">
+            <div>
+              <div class="eyebrow"><i data-lucide="trending-up"></i> 成长轨迹</div>
+              <h1 id="growth-title">学习成长全貌</h1>
+            </div>
+            <div class="growth-summary-strip">
+              <div class="growth-kpi"><strong>--</strong><small>学习节点</small></div>
+              <div class="growth-kpi"><strong>--%</strong><small>总体掌握</small></div>
+              <div class="growth-kpi"><strong>--</strong><small>成就徽章</small></div>
+              <div class="growth-kpi"><strong>--</strong><small>诊断轮次</small></div>
+            </div>
+          </div>
+
+          <div class="growth-page-grid">
+            <section class="growth-card growth-card--wide">
+              <div class="growth-card-heading">
+                <div><small>成就徽章</small><h2>已解锁 -- / -- 枚</h2></div>
+                <span class="growth-badge-progress">
+                  <span class="mini-track" style="width:80px"><span style="width:0%"></span></span>
+                  <small>--</small>
+                </span>
+              </div>
+              <div class="growth-card-body">
+                <div class="badge-grid">
+                  <div class="badge-item earned">
+                    <span class="badge-icon"><i data-lucide="check-circle-2"></i></span>
+                    <div><strong>封装入门</strong><small>完成封装与访问控制全部练习</small></div>
+                  </div>
+                  <div class="badge-item earned">
+                    <span class="badge-icon"><i data-lucide="flame"></i></span>
+                    <div><strong>连胜 7 天</strong><small>连续 7 天完成每日学习目标</small></div>
+                  </div>
+                  <div class="badge-item earned">
+                    <span class="badge-icon"><i data-lucide="target"></i></span>
+                    <div><strong>精准诊断</strong><small>第 2 轮诊断准确率超过 80%</small></div>
+                  </div>
+                  <div class="badge-item earned">
+                    <span class="badge-icon"><i data-lucide="zap"></i></span>
+                    <div><strong>速通达人</strong><small>单节学习用时低于平均 40%</small></div>
+                  </div>
+                  <div class="badge-item earned">
+                    <span class="badge-icon"><i data-lucide="book-marked"></i></span>
+                    <div><strong>知识奠基</strong><small>完成全部基础知识点学习</small></div>
+                  </div>
+                  <div class="badge-item earned">
+                    <span class="badge-icon"><i data-lucide="repeat"></i></span>
+                    <div><strong>纠错能手</strong><small>累计纠正 15 道错题</small></div>
+                  </div>
+                  <div class="badge-item locked">
+                    <span class="badge-icon"><i data-lucide="lock-keyhole"></i></span>
+                    <div><strong>继承精通</strong><small>完成继承与方法重写全部节点</small></div>
+                  </div>
+                  <div class="badge-item locked">
+                    <span class="badge-icon"><i data-lucide="lock-keyhole"></i></span>
+                    <div><strong>大赛备战</strong><small>模拟测验总分达到 90 分</small></div>
+                  </div>
+                </div>
+              </div>
+            </section>
+
+            <section class="growth-card">
+              <div class="growth-card-heading">
+                <div><small>能力对比</small><h2>诊断前后变化</h2></div>
+              </div>
+              <div class="growth-card-body">
+                <div class="ability-comparison">
+                  <div class="ability-row">
+                    <span class="ability-label">封装</span>
+                    <div class="ability-bars">
+                      <div class="ability-bar before" style="width:45%"><span class="ability-val">45%</span></div>
+                      <div class="ability-bar after" style="width:85%"><span class="ability-val">85%</span></div>
+                    </div>
+                  </div>
+                  <div class="ability-row">
+                    <span class="ability-label">继承</span>
+                    <div class="ability-bars">
+                      <div class="ability-bar before" style="width:30%"><span class="ability-val">30%</span></div>
+                      <div class="ability-bar after" style="width:50%"><span class="ability-val">50%</span></div>
+                    </div>
+                  </div>
+                  <div class="ability-row">
+                    <span class="ability-label">多态</span>
+                    <div class="ability-bars">
+                      <div class="ability-bar before" style="width:15%"><span class="ability-val">15%</span></div>
+                      <div class="ability-bar after" style="width:20%"><span class="ability-val">20%</span></div>
+                    </div>
+                  </div>
+                  <div class="ability-row">
+                    <span class="ability-label">异常</span>
+                    <div class="ability-bars">
+                      <div class="ability-bar before" style="width:25%"><span class="ability-val">25%</span></div>
+                      <div class="ability-bar after" style="width:55%"><span class="ability-val">55%</span></div>
+                    </div>
+                  </div>
+                  <div class="ability-row">
+                    <span class="ability-label">集合</span>
+                    <div class="ability-bars">
+                      <div class="ability-bar before" style="width:10%"><span class="ability-val">10%</span></div>
+                      <div class="ability-bar after" style="width:15%"><span class="ability-val">15%</span></div>
+                    </div>
+                  </div>
+                </div>
+                <div class="ability-legend">
+                  <span class="legend-item"><span class="legend-dot before"></span>诊断前</span>
+                  <span class="legend-item"><span class="legend-dot after"></span>当前</span>
+                </div>
+              </div>
+            </section>
+
+            <section class="growth-card">
+              <div class="growth-card-heading">
+                <div><small>掌握度</small><h2>知识点掌握环</h2></div>
+              </div>
+              <div class="growth-card-body mastery-body">
+                <div class="mastery-rings">
+                  <div class="mastery-ring-item">
+                    <svg viewBox="0 0 80 80" class="mastery-ring">
+                      <circle cx="40" cy="40" r="32" fill="none" stroke="var(--line)" stroke-width="5" />
+                      <circle cx="40" cy="40" r="32" fill="none" stroke="var(--green)" stroke-width="5" stroke-linecap="round" stroke-dasharray="201" stroke-dashoffset="30" transform="rotate(-90 40 40)" />
+                      <text x="40" y="44" text-anchor="middle" fill="var(--ink)" font-size="13" font-weight="700">85%</text>
+                    </svg>
+                    <small>封装</small>
+                  </div>
+                  <div class="mastery-ring-item">
+                    <svg viewBox="0 0 80 80" class="mastery-ring">
+                      <circle cx="40" cy="40" r="32" fill="none" stroke="var(--line)" stroke-width="5" />
+                      <circle cx="40" cy="40" r="32" fill="none" stroke="var(--amber)" stroke-width="5" stroke-linecap="round" stroke-dasharray="201" stroke-dashoffset="100" transform="rotate(-90 40 40)" />
+                      <text x="40" y="44" text-anchor="middle" fill="var(--ink)" font-size="13" font-weight="700">50%</text>
+                    </svg>
+                    <small>继承</small>
+                  </div>
+                  <div class="mastery-ring-item">
+                    <svg viewBox="0 0 80 80" class="mastery-ring">
+                      <circle cx="40" cy="40" r="32" fill="none" stroke="var(--line)" stroke-width="5" />
+                      <circle cx="40" cy="40" r="32" fill="none" stroke="var(--red)" stroke-width="5" stroke-linecap="round" stroke-dasharray="201" stroke-dashoffset="160" transform="rotate(-90 40 40)" />
+                      <text x="40" y="44" text-anchor="middle" fill="var(--ink)" font-size="13" font-weight="700">20%</text>
+                    </svg>
+                    <small>多态</small>
+                  </div>
+                </div>
+              </div>
+            </section>
+
+            <section class="growth-card growth-card--wide">
+              <div class="growth-card-heading">
+                <div><small>活动记录</small><h2>最近学习时间线</h2></div>
+              </div>
+              <div class="growth-card-body">
+                <ol class="growth-timeline">
+                  <li class="timeline-item">
+                    <span class="timeline-dot correct"></span>
+                    <div class="timeline-content">
+                      <strong>完成阶段检查 · 封装与访问控制</strong>
+                      <small>答对 3/3 题，掌握度提升至 85%</small>
+                      <time>2026-08-06 11:15</time>
+                    </div>
+                  </li>
+                  <li class="timeline-item">
+                    <span class="timeline-dot correct"></span>
+                    <div class="timeline-content">
+                      <strong>完成学习节点 · 类的定义与对象创建</strong>
+                      <small>视频 + 互动图文组合学习，用时 18 分钟</small>
+                      <time>2026-08-06 10:42</time>
+                    </div>
+                  </li>
+                  <li class="timeline-item">
+                    <span class="timeline-dot incorrect"></span>
+                    <div class="timeline-content">
+                      <strong>测验讲解 · 封装与访问控制</strong>
+                      <small>第 3 题计算错误，已生成针对性讲解</small>
+                      <time>2026-08-06 09:58</time>
+                    </div>
+                  </li>
+                  <li class="timeline-item">
+                    <span class="timeline-dot info"></span>
+                    <div class="timeline-content">
+                      <strong>完成第 2 轮学情诊断</strong>
+                      <small>准确率 75%，发现 2 个薄弱知识点，路径已调整</small>
+                      <time>2026-08-05 16:30</time>
+                    </div>
+                  </li>
+                  <li class="timeline-item">
+                    <span class="timeline-dot correct"></span>
+                    <div class="timeline-content">
+                      <strong>完成学习节点 · 数据类型与缺考标记</strong>
+                      <small>互动图文学习，用时 12 分钟</small>
+                      <time>2026-08-05 15:10</time>
+                    </div>
+                  </li>
+                </ol>
+              </div>
+            </section>
+          </div>
+        </section>
+
+<section class="page" id="portrait-page">
+          <div class="portrait-grid" id="portrait-root">
+            <p class="empty-state">画像加载中…</p>
+          </div>
+        </section>
+
+        <section class="page" id="chat-page" aria-labelledby="chat-title">
+          <div class="page-heading">
+            <div>
+              <div class="eyebrow"><i data-lucide="message-square"></i> 智能对话</div>
+              <h1 id="chat-title">学习助手</h1>
+            </div>
+            <div class="chat-context-tag">
+              <i data-lucide="book-open"></i>
+              <span>当前上下文：<strong>封装与访问控制</strong></span>
+            </div>
+          </div>
+
+          <div class="chat-layout">
+            <main class="chat-main">
+              <div class="chat-messages" id="chat-messages">
+                <div class="chat-bubble assistant">
+                  <div class="chat-bubble-header">
+                    <span class="chat-role"><i data-lucide="bot"></i> 助手</span>
+                    <span class="chat-time">11:20</span>
+                  </div>
+                  <div class="chat-bubble-body">
+                    <p>你好，我是你的学习助手。你可以直接提问关于 Java 面向对象程序设计的任何问题，也可以针对当前学习内容追问。</p>
+                  </div>
+                </div>
+
+                <div class="chat-bubble user">
+                  <div class="chat-bubble-header">
+                    <span class="chat-role"><i data-lucide="user-round"></i> 我</span>
+                    <span class="chat-time">11:21</span>
+                  </div>
+                  <div class="chat-bubble-body">
+                    <p>这个怎么弄？</p>
+                  </div>
+                </div>
+
+                <div class="chat-clarify" id="chat-clarify">
+                  <div class="clarify-header">
+                    <span class="clarify-icon"><i data-lucide="message-circle-question"></i></span>
+                    <div>
+                      <small>信息不足，需要澄清</small>
+                      <strong>你说的"这个"是指以下哪一个？</strong>
+                    </div>
+                  </div>
+                  <div class="clarify-options">
+                    <button class="clarify-option" type="button" data-clarify="encapsulation">
+                      <span class="clarify-tag">A</span>
+                      <span>封装与访问控制：私有字段如何通过 getter 方法安全访问</span>
+                    </button>
+                    <button class="clarify-option" type="button" data-clarify="inheritance">
+                      <span class="clarify-tag">B</span>
+                      <span>继承与方法重写：子类如何继承父类并覆盖方法</span>
+                    </button>
+                    <button class="clarify-option" type="button" data-clarify="average">
+                      <span class="clarify-tag">C</span>
+                      <span>平均分计算：如何排除缺考记录后计算有效成绩平均值</span>
+                    </button>
+                  </div>
+                  <p class="clarify-note">已保存上下文，选择后将继续原对话流程。</p>
+                </div>
+
+                <div class="chat-bubble assistant">
+                  <div class="chat-bubble-header">
+                    <span class="chat-role"><i data-lucide="bot"></i> 助手</span>
+                    <span class="chat-time">11:22</span>
+                  </div>
+                  <div class="chat-bubble-body">
+                    <p>好的，你问的是<strong>排除缺考记录后计算有效成绩平均值</strong>。我分三步说明：</p>
+                    <div class="chat-steps">
+                      <div class="chat-step">
+                        <span class="chat-step-num">1</span>
+                        <div>
+                          <strong>先确定有效成绩集合</strong>
+                          <p>缺考成绩为 null，不参与统计。通过 getValidScores() 方法过滤 null 后，有效成绩是 <code>[90, 60]</code>。</p>
+                        </div>
+                      </div>
+                      <div class="chat-step">
+                        <span class="chat-step-num">2</span>
+                        <div>
+                          <strong>从同一集合计算总和与数量</strong>
+                          <p>总和是 <code>90 + 60 = 150</code>，有效成绩数量是 <code>2</code>。两者必须来自同一个列表，不能分别取值。</p>
+                        </div>
+                      </div>
+                      <div class="chat-step">
+                        <span class="chat-step-num">3</span>
+                        <div>
+                          <strong>计算平均值</strong>
+                          <p><code>150 / 2 = 75.0</code>，而不是除以学生总人数 3。这样分子分母口径才一致。</p>
+                        </div>
+                      </div>
+                    </div>
+                    <div class="chat-safety-hint">
+                      <i data-lucide="shield-check"></i>
+                      <span>安全提示：在生产环境中，成绩数组应由服务端封装返回，不应在客户端直接访问私有字段。参考 GB/T 35273-2020 个人信息安全规范。</span>
+                    </div>
+                    <div class="chat-bubble-source">
+                      <i data-lucide="library"></i>
+                      <span>来源：课程知识库《Java 面向对象程序设计实训》第 3 节 · KN_JAVA_ENCAPSULATION</span>
+                    </div>
+                    <div class="chat-ai-label">
+                      <i data-lucide="sparkles"></i>
+                      <span>以上内容由 AI 生成，请结合教材原文核对。</span>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              <div class="chat-suggestions" id="chat-suggestions">
+                <span class="suggest-label">你可以继续问：</span>
+                <button class="suggest-chip" type="button">为什么分子分母必须来自同一集合？</button>
+                <button class="suggest-chip" type="button">如果所有学生都缺考怎么办？</button>
+                <button class="suggest-chip" type="button">getValidScores 内部是怎么实现的？</button>
+              </div>
+
+              <form class="chat-input-form" id="chat-input-form">
+                <textarea id="chat-input" rows="2" placeholder="输入你的问题，例如：继承和封装有什么关系？"></textarea>
+                <button class="primary-button" type="submit" id="chat-send"><i data-lucide="send"></i>发送</button>
+              </form>
+            </main>
+
+            <aside class="chat-side">
+              <section class="chat-side-section">
+                <small>对话上下文</small>
+                <div class="chat-context-list">
+                  <div class="chat-context-item active">
+                    <i data-lucide="book-open"></i>
+                    <div>
+                      <strong>封装与访问控制</strong>
+                      <small>KN_JAVA_ENCAPSULATION · 当前</small>
+                    </div>
+                  </div>
+                  <div class="chat-context-item">
+                    <i data-lucide="book-open"></i>
+                    <div>
+                      <strong>类的定义与对象创建</strong>
+                      <small>KN_JAVA_CLASS · 上一节</small>
+                    </div>
+                  </div>
+                  <div class="chat-context-item">
+                    <i data-lucide="clipboard-check"></i>
+                    <div>
+                      <strong>测验第 3 题</strong>
+                      <small>封装计算错误 · 已讲解</small>
+                    </div>
+                  </div>
+                </div>
+              </section>
+              <section class="chat-side-section">
+                <small>追问轮次</small>
+                <div class="chat-round-indicator">
+                  <span class="round-pill active">1</span>
+                  <span class="round-line"></span>
+                  <span class="round-pill active">2</span>
+                  <span class="round-line"></span>
+                  <span class="round-pill">3</span>
+                </div>
+                <p class="chat-round-note">当前第 2 轮追问，最多支持 3 轮上下文关联。超过后系统将开启新对话。</p>
+              </section>
+              <section class="chat-side-section">
+                <small>关联资源</small>
+                <div class="chat-resource-row">
+                  <span class="resource-icon"><i data-lucide="video"></i></span>
+                  <div><strong>成绩统计中的有效记录</strong><span>课程资源库 · 2:10</span></div>
+                </div>
+                <div class="chat-resource-row">
+                  <span class="resource-icon document"><i data-lucide="file-check-2"></i></span>
+                  <div><strong>封装访问检查表</strong><span>实训指导书 · 第 3 节</span></div>
+                </div>
+                <button class="secondary-button full" type="button" style="margin-top:8px"><i data-lucide="external-link"></i>查看全部来源</button>
+              </section>
+            </aside>
+          </div>
+        </section>
+        <section class="page" id="profile-page" aria-labelledby="profile-title">
+          <div class="page-heading">
+            <div>
+              <div class="eyebrow"><i data-lucide="user"></i> 个人中心</div>
+              <h1 id="profile-title">我的学习空间</h1>
+            </div>
+          </div>
+
+          <div class="profile-layout">
+            <aside class="profile-summary-card">
+              <div class="profile-avatar-lg"><span id="profile-avatar-text">林</span></div>
+              <strong id="profile-page-name">林同学</strong>
+              <small id="profile-page-id">STU-DEMO-001</small>
+              <p id="profile-page-program">Java 面向对象程序设计实训</p>
+
+              <div class="profile-goal-block">
+                <div class="panel-heading">
+                  <div><small>当前学习目标</small><h2 id="profile-goal-name">完成 Java 面向对象成绩管理实训</h2></div>
+                </div>
+                <p class="profile-goal-desc" id="profile-goal-desc">围绕所选目标生成个性化学习路径。</p>
+                <button class="secondary-button full" type="button" id="profile-switch-goal"><i data-lucide="refresh-cw"></i>切换目标并重新测评</button>
+              </div>
+            </aside>
+
+            <div class="profile-sections">
+              <div class="profile-section-grid">
+                <button class="profile-tile" type="button" data-profile-target="portrait">
+                  <span class="profile-tile-icon"><i data-lucide="user-round"></i></span>
+                  <span class="profile-tile-body"><strong>用户画像</strong><small>能力雷达 · 知识点图谱 · 薄弱点</small></span>
+                  <i data-lucide="chevron-right"></i>
+                </button>
+                <button class="profile-tile" type="button" data-profile-target="growth">
+                  <span class="profile-tile-icon"><i data-lucide="trending-up"></i></span>
+                  <span class="profile-tile-body"><strong>成长轨迹</strong><small>KPI · 徽章 · 能力对比</small></span>
+                  <i data-lucide="chevron-right"></i>
+                </button>
+                <button class="profile-tile" type="button" data-profile-target="records">
+                  <span class="profile-tile-icon"><i data-lucide="history"></i></span>
+                  <span class="profile-tile-body"><strong>学习记录</strong><small>讲解会话 · 练习作答 · 成长曲线</small></span>
+                  <i data-lucide="chevron-right"></i>
+                </button>
+                <button class="profile-tile" type="button" data-profile-target="settings">
+                  <span class="profile-tile-icon"><i data-lucide="settings"></i></span>
+                  <span class="profile-tile-body"><strong>偏好设置</strong><small>教学方式 · 讲解深度 · 动效</small></span>
+                  <i data-lucide="chevron-right"></i>
+                </button>
+              </div>
+
+              <div class="profile-note">
+                <i data-lucide="info"></i>
+                <p>画像、成长、记录与设置集中在个人中心；测评入口在首次进入与切换目标时出现。</p>
+              </div>
+            </div>
+          </div>
+        </section>
+        <section class="page utility-page" id="settings-page" aria-labelledby="settings-title">
+          <div class="page-heading"><div><div class="eyebrow"><i data-lucide="settings"></i> 学习偏好</div><h1 id="settings-title">设置</h1></div></div>
+          <form class="settings-form" id="settings-form">
+            <label for="preferred-delivery-mode">默认教学方式<span>用于新讲解的首选呈现形式</span></label>
+            <select id="preferred-delivery-mode" name="preferred_delivery_mode">
+              <option value="text">互动图文</option>
+              <option value="video">视频教学</option>
+            </select>
+            <label for="explanation-depth">讲解深度<span>控制默认步骤密度</span></label>
+            <select id="explanation-depth" name="explanation_depth">
+              <option value="guided">引导式</option>
+              <option value="standard">标准</option>
+              <option value="concise">精简</option>
+            </select>
+            <label class="setting-toggle"><input type="checkbox" id="reduced-motion" name="reduced_motion" /><span><strong>减少动态效果</strong><small>降低滚动和状态切换动画</small></span></label>
+            <label class="setting-toggle"><input type="checkbox" id="auto-play-video" name="auto_play_video" /><span><strong>自动播放可嵌入视频</strong><small>仅对已核验来源的视频生效</small></span></label>
+            <div class="form-actions"><button class="primary-button" type="submit" id="save-settings"><i data-lucide="save"></i>保存设置</button></div>
+          </form>
+        </section>
+      </main>
+    </div>
+
+<button class="selection-ask-button" id="selection-ask-button" type="button" hidden>
+      <i data-lucide="message-circle"></i> 追问
+    </button>
+
+    <section class="follow-up-workspace" id="follow-up-workspace" hidden aria-label="追问工作区">
+      <div class="follow-up-header">
+        <div>
+          <small>追问工作区</small>
+          <strong id="follow-up-context">基于当前讲解内容追问</strong>
+        </div>
+        <button class="icon-button" type="button" id="follow-up-close" aria-label="收起追问工作区"><i data-lucide="chevron-down"></i></button>
+      </div>
+      <div class="follow-up-messages" id="follow-up-messages">
+        <div class="follow-up-empty">
+          <i data-lucide="mouse-pointer-click"></i>
+          <p>选中讲解中的任意文字可快速发起追问，或直接输入你的问题。</p>
+        </div>
+      </div>
+      <div class="follow-up-suggestions" id="follow-up-suggestions" hidden></div>
+      <form class="follow-up-form" id="follow-up-form">
+        <textarea id="follow-up-input" rows="2" placeholder="输入你的追问，例如：为什么这里要先用同一组有效数据？"></textarea>
+        <button class="primary-button" type="submit" id="follow-up-send"><i data-lucide="send"></i>追问</button>
+      </form>
+    </section>
+    <dialog class="check-dialog" id="check-dialog">
+      <form method="dialog" id="check-form">
+        <div class="dialog-heading">
+          <div><small>阶段检查</small><h2 id="check-title">私有字段的访问方式</h2></div>
+          <button class="icon-button" value="cancel" aria-label="关闭阶段检查"><i data-lucide="x"></i></button>
+        </div>
+        <p id="check-prompt">四名学生的成绩为 80、缺考、100、缺考，缺考不参与平均分。正确的平均分计算式是：</p>
+        <div id="check-options">
+          <label class="check-option"><input type="radio" name="answer" value="a" /><span>A</span><code>(80 + 100) / 4</code></label>
+          <label class="check-option"><input type="radio" name="answer" value="b" /><span>B</span><code>(80 + 100) / 2</code></label>
+          <label class="check-option"><input type="radio" name="answer" value="c" /><span>C</span><code>(80 + 100) / 3</code></label>
+        </div>
+        <div class="check-feedback" id="check-feedback" hidden></div>
+        <div class="dialog-actions">
+          <button class="secondary-button" value="cancel">稍后再做</button>
+          <button class="primary-button" type="button" id="submit-check"><i data-lucide="send"></i>提交答案</button>
+        </div>
+      </form>
+    </dialog>
+
+    <dialog id="sources-dialog">
+      <form method="dialog">
+        <div class="dialog-heading"><div><small>可追溯资料</small><h2>讲解来源</h2></div><button class="icon-button" value="cancel" aria-label="关闭来源"><i data-lucide="x"></i></button></div>
+        <div class="source-reference-list" id="source-reference-list"><p class="empty-state">暂无来源记录</p></div>
+      </form>
+    </dialog>
+
+    <dialog id="video-detail-dialog">
+      <form method="dialog">
+        <div class="dialog-heading"><div><small>联网教学视频</small><h2>视频详情</h2></div><button class="icon-button" value="cancel" aria-label="关闭视频详情"><i data-lucide="x"></i></button></div>
+        <div class="video-detail-body">
+          <strong id="video-detail-title">教学视频</strong>
+          <p id="video-detail-source"></p>
+          <p class="video-detail-desc" id="video-detail-desc"></p>
+          <div class="dialog-actions">
+            <a class="secondary-button" id="video-detail-open" target="_blank" rel="noopener noreferrer" hidden><i data-lucide="external-link"></i>在来源网站打开</a>
+          </div>
+        </div>
+      </form>
+    </dialog>
+
+    <dialog id="question-filter-dialog">
+      <form method="dialog" id="question-filter-form">
+        <div class="dialog-heading"><div><small>题目导航</small><h2>筛选题目</h2></div><button class="icon-button" value="cancel" aria-label="关闭题目筛选"><i data-lucide="x"></i></button></div>
+        <label class="filter-option"><input type="checkbox" name="question-status" value="incorrect" checked /><span>需纠正</span></label>
+        <label class="filter-option"><input type="checkbox" name="question-status" value="pending" checked /><span>待补充</span></label>
+        <label class="filter-option"><input type="checkbox" name="question-status" value="completed" checked /><span>已完成</span></label>
+        <div class="dialog-actions"><button class="primary-button" type="button" id="apply-question-filter"><i data-lucide="list-filter"></i>应用筛选</button></div>
+      </form>
+    </dialog>
+
+    <dialog id="practice-dialog">
+      <form method="dialog" id="practice-form">
+        <div class="dialog-heading"><div><small id="practice-mode-label">针对性练习</small><h2 id="practice-title">题目</h2></div><button class="icon-button" value="cancel" aria-label="关闭练习题"><i data-lucide="x"></i></button></div>
+        <p id="practice-prompt"></p>
+        <label class="input-label" for="practice-answer" id="practice-answer-label">你的答案</label>
+        <textarea id="practice-answer" rows="4" placeholder="输入答案"></textarea>
+        <pre class="code-run-output" id="practice-run-output" hidden></pre>
+        <div class="check-feedback" id="practice-feedback" hidden role="status"></div>
+        <div class="dialog-actions"><button class="secondary-button" value="cancel">稍后再做</button><button class="secondary-button" type="button" id="run-practice-code"><i data-lucide="play"></i>运行代码</button><button class="primary-button" type="button" id="submit-practice"><i data-lucide="send"></i>提交答案</button></div>
+      </form>
+    </dialog>
+
+    <dialog class="clarification-dialog" id="clarification-dialog">
+      <form method="dialog" id="clarification-form">
+        <div class="dialog-heading warning-heading">
+          <span class="warning-icon"><i data-lucide="message-circle-question"></i></span>
+          <div><small>信息不足</small><h2>需要补充题目描述</h2></div>
+          <button class="icon-button" value="cancel" aria-label="关闭补充信息对话框"><i data-lucide="x"></i></button>
+        </div>
+        <p class="clarification-copy">系统已收到异常信息：<strong>question_snapshot.question_text 为空</strong>。请补充本次题目或实训任务的完整描述。</p>
+        <label class="input-label" for="clarification-input">题目或任务描述</label>
+        <textarea id="clarification-input" rows="4" placeholder="例如：读取成绩列表，排除缺考记录后计算平均分。"></textarea>
+        <div class="resume-token"><i data-lucide="key-round"></i><span>恢复令牌已保存，本次补充会继续原工作流。</span></div>
+        <div class="dialog-actions">
+          <button class="secondary-button danger-text" type="button" id="end-workflow">无法提供，结束</button>
+          <button class="primary-button" type="button" id="continue-workflow"><i data-lucide="corner-down-right"></i>补充并继续</button>
+        </div>
+      </form>
+    </dialog>
+
+    <div class="toast" id="toast" role="status" aria-live="polite">
+      <i data-lucide="circle-check"></i><span></span>
+    </div>
+
+    <div class="onboarding-overlay" id="onboarding-overlay" hidden>
+      <div class="onboarding-modal" role="dialog" aria-modal="true" aria-labelledby="onboarding-title">
+        <div class="onboarding-head">
+          <span class="onboarding-step">第 1 步 · 共 2 步</span>
+          <h2 id="onboarding-title">先选定你的学习目标</h2>
+          <p>系统会根据目标生成个性化路径，并在完成后进入测评。</p>
+        </div>
+        <div class="goal-card-list onboarding-goals">
+          <button class="goal-card selected" type="button" data-goal="competition" aria-pressed="true">
+            <span class="goal-card-icon"><i data-lucide="trophy"></i></span>
+            <span class="goal-card-body">
+              <strong>备战世界职业院校技能大赛</strong>
+              <small>Java 程序设计赛项 · 对标国赛标准</small>
+            </span>
+            <span class="goal-card-badge">推荐</span>
+          </button>
+          <button class="goal-card" type="button" data-goal="certification" aria-pressed="false">
+            <span class="goal-card-icon"><i data-lucide="award"></i></span>
+            <span class="goal-card-body">
+              <strong>1+X Java 应用开发认证</strong>
+              <small>初级 · 知识体系全覆盖诊断</small>
+            </span>
+          </button>
+          <button class="goal-card" type="button" data-goal="daily" aria-pressed="false">
+            <span class="goal-card-icon"><i data-lucide="graduation-cap"></i></span>
+            <span class="goal-card-body">
+              <strong>日常技能提升</strong>
+              <small>面向岗位能力图谱 · 查漏补缺</small>
+            </span>
+          </button>
+        </div>
+        <div class="custom-goal-zone">
+          <div class="custom-goal-divider"><span>或输入你的学习目标</span></div>
+          <form class="custom-goal-form">
+            <input class="custom-goal-input" type="text" placeholder="例如：想考 1+X Java 应用开发认证" maxlength="60" />
+            <button class="custom-goal-submit" type="submit">智能识别</button>
+          </form>
+          <p class="custom-goal-result" hidden></p>
+        </div>
+        <div class="onboarding-actions">
+          <button class="secondary-button" type="button" id="onboarding-cancel" hidden><i data-lucide="x"></i>暂不调整，返回</button>
+          <button class="primary-button" type="button" id="onboarding-confirm"><i data-lucide="arrow-right"></i>确认目标，开始测评</button>
+        </div>
+      </div>
+    </div>
+
+    <script src="vendor/lucide.min.js"></script>
+    <script src="vendor/marked.min.js"></script>
+    <script src="vendor/katex/katex.min.js"></script>
+    <script src="app.js"></script>
+    <script src="api.js"></script>
+  </body>
+</html>

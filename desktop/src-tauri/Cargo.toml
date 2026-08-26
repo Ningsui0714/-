@@ -1,0 +1,20 @@
+[package]
+name = "learnflow-desktop"
+version = "0.1.0"
+description = "LearnFlow trusted local desktop workspace"
+authors = ["LearnFlow contributors"]
+edition = "2021"
+
+[lib]
+name = "learnflow_desktop_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+serde = { version = "1", features = ["derive"] }
+tauri = { version = "2", features = [] }
+tauri-plugin-dialog = "2"
+tauri-plugin-shell = "2"
+uuid = { version = "1", features = ["v4"] }

@@ -1,47 +1,42 @@
-# ---------- 开发工具与缓存 ----------
-.reasonix/
-.hermes/
-reasonix.toml
-vision.cjs
-.pytest_cache/
-__pycache__/
+# Python
+backend/venv/
+backend/.venv/
+backend/.venv-*/
+backend/__pycache__/
+backend/**/__pycache__/
 *.pyc
+backend/data/
+backend/*.db
+backend/.env
+# Feature-scoped credentials for the 岗位典型工作任务转化 integration.
+# Keep these out of the global backend settings and out of Git history.
+backend/.private/
 
-# ---------- 过程性产物（改动记录、步骤、归档、测试产物，不上传） ----------
-docs/
-references/
-_archive/
-tools/
-workflow-nodes/
-workflows/history/
-workflows/current/debug-data-*/
-test-screenshots/
-test_browser.py
-test_support.py
-test-report.json
-test-report.md
-migration-manifest.csv
-server.out.log
-server.err.log
+# Node
+frontend/node_modules/
+frontend/dist/
 
-# ---------- 根目录过程性文档：只保留核心文档 ----------
-/*.md
-!/比赛方案_XA-202603_智能体开发比赛.md
-!/项目介绍.md
-!/知识库_Java岗位_星辰上传版.md
-!/DIRECTORY_GUIDE.md
-!/AGENTS.md
+# macOS
+.DS_Store
 
-# ---------- 敏感/运行时文件 ----------
-.env
-.env.bak
-backend/data/*.db
-backend/data/*.db-shm
-backend/data/*.db-wal
-backend/data/*.sqlite
+# IDE
+.vscode/
+.idea/
 
-# ---------- 临时产物 ----------
-tmp/
-
-# ---------- 本地运行数据（不上传） ----------
+# Logs
+*.log
 data/
+.playwright-cli/
+
+# Project-mode runtime (venv + workspaces)
+backend/runtime/
+# Build artifacts & backups
+frontend/*.tsbuildinfo
+backend/*.db.bak*
+backend/backups/
+backend/*.pth
+
+# Tauri desktop build output and generated sidecars
+desktop/node_modules/
+desktop/src-tauri/target/
+desktop/src-tauri/binaries/learnflow-backend-*
